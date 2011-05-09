@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:orientation="vertical"
+	android:layout_width="fill_parent"
+	android:layout_height="fill_parent">
+	<LinearLayout android:orientation="vertical"
+		android:layout_width="fill_parent"
+		android:layout_height="fill_parent"
+		android:layout_weight="1">
+	
+		<!-- Name -->
+		<TextView android:id="@+id/EditNameText"
+			android:text="@string/Name"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:textStyle="bold"
+			android:layout_marginTop="5sp"></TextView>
+			
+		<EditText android:id="@+id/EditNameInput"
+			android:text=""
+			android:layout_height="wrap_content"
+			android:layout_width="match_parent"
+			android:nextFocusDown="@+id/EditNotesInput" android:inputType="text"></EditText>
+		
+		<!-- Due Date -->
+		<TextView android:id="@+id/EditDateText"
+			android:text="@string/DueDate"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:textStyle="bold"
+			android:layout_marginTop="5sp"></TextView>
+			
+		<LinearLayout android:layout_height="wrap_content"
+			android:layout_width="fill_parent"
+			android:orientation="horizontal">
+			<CheckBox android:id="@+id/EditDateCheckbox"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_weight="0"></CheckBox>
+			<Button android:id="@+id/EditDateButton"
+				android:layout_height="wrap_content"
+				android:layout_width="fill_parent"
+				android:layout_weight="1"></Button>		
+		</LinearLayout>
+	
+		<!-- Notes -->
+		<TextView android:id="@+id/EditNotesText"
+			android:text="@string/Notes"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:textStyle="bold"
+			android:layout_marginTop="5sp"></TextView>
+		
+		<EditText android:id="@+id/EditNotesInput"
+			android:text=""
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:layout_width="match_parent"
+			android:layout_marginBottom="5sp"
+			android:nextFocusDown="@+id/EditSaveButton"
+			android:nextFocusUp="@+id/EditNameInput" android:gravity="top|left" android:inputType="textAutoCorrect|textMultiLine"></EditText>
+	</LinearLayout>
+	
+	<include layout="@layout/edit_button_bar"
+		android:layout_weight="0" />
+</LinearLayout>

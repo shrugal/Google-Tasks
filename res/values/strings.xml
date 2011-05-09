@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="SettingsSyncPeriodSum"></string>
+    <string name="Period">Period</string>
+    <string name="SettingsSyncAccSum">Login with your Google Account</string>
+    <string name="Account">Account</string>
+    <string name="SettingsSyncSum">With Google Tasks</string>
+    <string name="Synchronization">Synchronization</string>
+    <string name="settings">Settings</string>
+	<string name="app_name">Google Tasks</string>	
+	<string name="Lists">Lists</string>
+	<string name="Name">Name</string>
+	<string name="Notes">Notes</string>
+	<string name="Save">Save</string>
+	<string name="Close">Close</string>
+	<string name="Edit">Edit</string>
+	<string name="Create">Create</string>
+	<string name="task">task</string>
+	<string name="list">list</string>
+	<string name="DueDate">Due Date</string>
+	<string name="email">Email</string>
+	<string name="password">Password</string>
+	<string name="Tasks">Tasks</string>
+	<string name="Delete">Delete</string>
+	<string name="areYouSure">Are you sure?</string>
+	<string name="Yes">Yes</string>
+	
+	<color name="Lightgreen">#8CC63F</color>
+	<color name="Orange">#ff8c00</color>
+	<string name="Authority">com.shrugal.googletasks.provider</string>
+	<string name="selectAccount">Select Account</string>
+</resources>

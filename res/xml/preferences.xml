@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+	android:title="@string/settings">
+	
+	<PreferenceCategory android:title="@string/Synchronization"
+		android:summary="@string/SettingsSyncSum">
+		<Preference android:summary="@string/SettingsSyncAccSum"
+			android:title="@string/Account"
+			android:key="sync_account"></Preference>
+		<ListPreference android:key="sync_period"
+			android:summary="@string/SettingsSyncPeriodSum"
+			android:entryValues="@array/SettingsYnchPeriodValues"
+			android:entries="@array/SettingsSyncPeriodEntries"
+			android:title="@string/Period" android:defaultValue="1"></ListPreference>
+	</PreferenceCategory>
+</PreferenceScreen>

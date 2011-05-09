@@ -1,0 +1,4 @@
+- sortierung syncen
+- gaaaanz viel UI
+- multi account
+- Widget

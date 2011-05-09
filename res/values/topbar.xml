@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<style name="topbar">
+		<item name="android:background">@color/topbar</item>
+		<item name="android:textColor">#FFFFFF</item>
+		<item name="android:textSize">22sp</item>
+	</style>
+</resources>

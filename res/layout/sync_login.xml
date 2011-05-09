@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="fill_parent"
+  android:layout_height="fill_parent"
+  android:orientation="vertical">
+	<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	  android:layout_width="fill_parent"
+	  android:layout_height="fill_parent"
+	  android:orientation="vertical"
+	  android:layout_weight="1">
+	  	
+		<ImageView android:id="@+id/ImageView01"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:src="@drawable/logo_google"
+			android:layout_gravity="center_horizontal"
+			android:layout_marginTop="20px"></ImageView>
+			
+	  	<!-- Email -->
+		<TextView android:text="@string/email"
+			android:id="@+id/SyncLoginEmailText"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginBottom="5px"></TextView>
+		
+		<EditText android:text=""
+			android:id="@+id/SyncLoginEmailInput"
+			android:layout_height="wrap_content"
+			android:layout_width="fill_parent"
+			android:inputType="textEmailAddress"
+			android:lines="1"></EditText>
+		
+		<!-- Password -->
+		<TextView android:text="@string/password"
+			android:id="@+id/SyncLoginPasswordText"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="10px"
+			android:layout_marginBottom="5px"></TextView>
+		
+		<EditText android:text=""
+			android:id="@+id/SyncLoginPasswordInput"
+			android:layout_height="wrap_content"
+			android:layout_width="fill_parent"
+			android:inputType="textPassword"
+			android:lines="1"></EditText>
+			
+	</LinearLayout>
+	
+	<!-- Login Button -->
+	<include layout="@layout/edit_button_bar"
+		android:layout_weight="0" />
+		
+</LinearLayout>

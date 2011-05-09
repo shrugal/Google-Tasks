@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+      package="com.shrugal.googletasks"
+      android:versionCode="1"
+      android:versionName="1.0">
+    <uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<uses-permission android:name="android.permission.GET_ACCOUNTS" />
+	<uses-permission android:name="android.permission.USE_CREDENTIALS" />
+	<uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+	<uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
+	<uses-permission android:name="android.permission.CALL_PRIVILEGED"></uses-permission>
+    <application android:icon="@drawable/icon" android:label="@string/app_name">
+    
+    	<!-- Activities -->
+        <activity android:label="@string/app_name" android:name="lists.ListsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    	<activity android:name="ListsEditActivity"></activity>
+    	<activity android:name="TasksEditActivity"></activity>
+		<activity android:name="PreferencesActivity"></activity>
+		<activity android:name="TasksActivity"></activity>
+	
+		<!-- Provider -->
+		<provider android:exported="false"
+			android:syncable="true"
+			android:authorities="com.shrugal.googletasks.provider"
+			android:name=".provider.TasksProvider"></provider>
+		
+		<!-- Services -->
+		<service android:name=".sync.SyncService"
+			android:exported="true" android:label="Hier steht das Label">
+			<intent-filter>
+				<action android:name="android.content.SyncAdapter" />
+			</intent-filter>
+			<meta-data
+				android:name="android.content.SyncAdapter"
+				android:resource="@xml/syncadapter" />
+		</service>
+		<activity android:name=".sync.ChooseAccountActivity"></activity>
+	</application>
+	<uses-sdk android:maxSdkVersion="10" android:targetSdkVersion="10" android:minSdkVersion="8"></uses-sdk>
+</manifest> 

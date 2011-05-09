@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:orientation="vertical"
+	android:layout_width="fill_parent"
+	android:layout_height="fill_parent">
+	
+	<LinearLayout android:id="@+id/TopBarContainerLayout"
+		android:orientation="horizontal"
+		android:layout_width="fill_parent"
+		android:layout_height="wrap_content">
+		<ImageButton android:id="@+id/ReloadButton"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:clickable="true"
+			android:src="@drawable/ic_reload"
+			style="@style/topbar"
+			android:layout_marginRight="2px"></ImageButton>
+		<TextView android:layout_height="match_parent"
+			android:layout_width="wrap_content"
+			android:layout_gravity="fill_horizontal"
+			android:layout_weight="1"
+			style="@style/topbar"
+			android:clickable="true"
+			android:text="@string/Lists"
+			android:id="@+id/TopBarTitle"
+			android:gravity="center"></TextView>
+		<ImageButton android:id="@+id/AddButton"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:clickable="true"
+			android:layout_gravity="top|right"
+			style="@style/topbar"
+			android:src="@drawable/ic_add"
+			android:layout_marginLeft="2px"></ImageButton>
+	</LinearLayout>
+
+	<ListView android:id="@id/android:list"
+		android:layout_height="wrap_content"
+		android:layout_weight="1" android:layout_width="match_parent"></ListView>
+	
+	<TextView android:id="@id/android:empty"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:text="No Data" android:gravity="center_vertical|center_horizontal"></TextView>
+</LinearLayout>

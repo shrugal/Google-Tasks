@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:id="@+id/EditButtonContainer"
+	android:layout_height="wrap_content"
+	android:background="@android:color/darker_gray"
+	android:orientation="horizontal"
+	android:paddingTop="3sp"
+	android:layout_gravity="bottom"
+	android:layout_width="fill_parent">
+	
+	<Button android:layout_height="wrap_content"
+		android:id="@+id/EditSaveButton"
+		android:text="@string/Save"
+		android:layout_width="wrap_content"
+		android:layout_weight="0.5" android:drawableLeft="@drawable/ic_save"></Button>
+	
+	<Button android:text="@string/Close"
+		android:id="@+id/EditCloseButton"
+		android:layout_height="wrap_content"
+		android:layout_width="wrap_content"
+		android:layout_weight="0.5" android:drawableLeft="@drawable/ic_close"></Button>
+</LinearLayout>

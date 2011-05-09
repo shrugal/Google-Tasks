@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:orientation="vertical"
+	android:layout_width="fill_parent"
+	android:layout_height="fill_parent">
+	<LinearLayout android:orientation="vertical"
+		android:layout_width="fill_parent"
+		android:layout_height="fill_parent"
+		android:layout_weight="1">
+		
+		<TextView android:id="@+id/EditNameText"
+			android:text="@string/Name"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:textStyle="bold"
+			android:layout_marginTop="5sp"></TextView>
+			
+		<EditText android:id="@+id/EditNameInput"
+			android:text=""
+			android:layout_height="wrap_content"
+			android:layout_width="match_parent"
+			android:nextFocusDown="@+id/EditSaveButton" android:inputType="text"></EditText>
+	</LinearLayout>
+		
+	<include layout="@layout/edit_button_bar"
+		android:layout_weight="0" />
+</LinearLayout>
