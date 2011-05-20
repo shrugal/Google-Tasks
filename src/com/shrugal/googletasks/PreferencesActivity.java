@@ -1,18 +1,15 @@
 package com.shrugal.googletasks;
 
-import java.util.Iterator;
-
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.content.ContentResolver;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.os.Bundle;
 import android.preference.Preference;
+import android.preference.Preference.OnPreferenceClickListener;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceManager;
-import android.preference.Preference.OnPreferenceClickListener;
 import android.util.Log;
 
 import com.shrugal.googletasks.provider.TasksProvider;
@@ -23,6 +20,7 @@ public class PreferencesActivity extends PreferenceActivity implements OnPrefere
 	/* Finals */
 	private static final int SYNC_ACCOUNT_AUTH = 0;
 	private static final int SYNC_ACCOUNT_CHOOSE = 1;
+	private static final String AUTH_TOKEN_TYPE = "cl";
 	
 	
 	public void onCreate (Bundle savedInstanceState) {
@@ -44,7 +42,7 @@ public class PreferencesActivity extends PreferenceActivity implements OnPrefere
 	protected void onActivityResult (int requestCode, int resultCode, Intent data) {
 		switch(requestCode) {
 		
-			//Athentication
+			//Authentication
 			case SYNC_ACCOUNT_AUTH:
 				Log.d("Google Tasks", "onActivityResult()->SYNC_ACCOUNT_AUTH");
 				if(resultCode == RESULT_OK) {
@@ -99,7 +97,7 @@ public class PreferencesActivity extends PreferenceActivity implements OnPrefere
 			@Override
 			public void run () {
 				try {
-					final Bundle answer = AccountManager.get(PreferencesActivity.this).getAuthToken(account, "goanna_mobile", null, PreferencesActivity.this, null, null).getResult();
+					final Bundle answer = AccountManager.get(PreferencesActivity.this).getAuthToken(account, AUTH_TOKEN_TYPE, null, PreferencesActivity.this, null, null).getResult();
 					
 					runOnUiThread(new Runnable() {
 						@Override
