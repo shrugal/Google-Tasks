@@ -4,34 +4,10 @@
 	android:layout_width="fill_parent"
 	android:layout_height="fill_parent">
 	
-	<LinearLayout android:id="@+id/TopBarContainerLayout"
+	<include android:id="@+id/TopBarContainerLayout_ref"
+		layout="@layout/topbar"
 		android:layout_width="fill_parent"
-		android:layout_height="wrap_content" android:orientation="horizontal">
-		<ImageButton android:id="@+id/ReloadButton"
-			android:layout_width="wrap_content"
-			android:layout_height="wrap_content"
-			android:clickable="true"
-			android:src="@drawable/ic_reload"
-			style="@style/topbar"
-			android:layout_marginRight="2px"></ImageButton>
-		<TextView android:layout_height="match_parent"
-			android:layout_width="wrap_content"
-			android:layout_gravity="fill_horizontal"
-			android:layout_weight="1"
-			style="@style/topbar"
-			android:clickable="true"
-			android:text="@string/Tasks"
-			android:id="@+id/TopBarTitle"
-			android:gravity="center"></TextView>
-		<ImageButton android:id="@+id/AddButton"
-			android:layout_width="wrap_content"
-			android:layout_height="wrap_content"
-			android:clickable="true"
-			android:layout_gravity="top|right"
-			style="@style/topbar"
-			android:src="@drawable/ic_add"
-			android:layout_marginLeft="2px"></ImageButton>
-	</LinearLayout>
+		android:layout_height="wrap_content"/>
 	
 	<com.shrugal.googletasks.WorkspaceView android:id="@+id/ScrollView"
 			android:layout_width="wrap_content"
