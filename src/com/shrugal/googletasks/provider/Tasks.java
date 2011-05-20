@@ -16,6 +16,7 @@ public final class Tasks implements BaseColumns {
 	//Database table keys
 	public static final String G_ID = "g_id";
 	public static final String LIST_ID = "list_id";
+	public static final String PARENT = "parent";
 	public static final String NAME = "name";
 	public static final String NOTES = "notes";
 	public static final String DATE = "date";
