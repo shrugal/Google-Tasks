@@ -30,4 +30,7 @@ public final class Tasks implements BaseColumns {
 	public static final String DEFAULT_ORDER = LIST_ID +" ASC, "+ NAME +" ASC";
 	public static final int LAST_MODIFIED_TYPE_LOCAL = 0;
 	public static final int LAST_MODIFIED_TYPE_SERVER = 1;
+	
+	//Other
+	public static final String PREVIOUS = "previous";
 }

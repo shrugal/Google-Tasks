@@ -67,20 +67,11 @@ public class TasksProvider extends ContentProvider {
 		Uri result;
 		switch(sUriMatcher.match(uri)) {
 			case LISTS:
-				id = mDb.addList(values.getAsLong(Lists.G_ID),
-						values.getAsString(Lists.NAME),
-						values.getAsLong(Lists.LAST_MODIFIED),
-						values.getAsInteger(Lists.LAST_MODIFIED_TYPE));
+				id = mDb.addList(values);
 				result = ContentUris.withAppendedId(Lists.CONTENT_URI, id);
 				break;
 			case TASKS:
-				id = mDb.addTask(values.getAsLong(Tasks.G_ID),
-						values.getAsLong(Tasks.LIST_ID),
-						values.getAsString(Tasks.NAME),
-						values.getAsString(Tasks.NOTES),
-						values.getAsLong(Tasks.LAST_MODIFIED),
-						values.getAsInteger(Tasks.LAST_MODIFIED_TYPE),
-						values.getAsBoolean(Tasks.COMPLETED));
+				id = mDb.addTask(values);
 				result = ContentUris.withAppendedId(Tasks.CONTENT_URI, id);
 				break;
 			default:
@@ -96,39 +87,16 @@ public class TasksProvider extends ContentProvider {
 		int count = 0;
 		switch(sUriMatcher.match(uri)) {
 			case LISTS:
-				count = mDb.updateLists(selection,
-						values.getAsLong(Lists.LAST_MODIFIED),
-						values.getAsInteger(Lists.LAST_MODIFIED_TYPE),
-						values.getAsBoolean(Lists.DELETED));
+				count = mDb.updateLists(values, selection);
 				break;
 			case LIST_ID:
-				count = mDb.updateList(Long.valueOf(uri.getPathSegments().get(1)),
-						values.getAsLong(Lists.G_ID),
-						values.getAsString(Lists.NAME),
-						values.getAsLong(Lists.LAST_MODIFIED),
-						values.getAsInteger(Lists.LAST_MODIFIED_TYPE),
-						values.getAsBoolean(Lists.DELETED));
+				count = mDb.updateList(Long.valueOf(uri.getPathSegments().get(1)), values);
 				break;
 			case TASKS:
-				count = mDb.updateTasks(selection,
-						values.getAsLong(Tasks.LIST_ID),
-						values.getAsString(Tasks.NOTES),
-						values.getAsLong(Tasks.LAST_MODIFIED),
-						values.getAsInteger(Tasks.LAST_MODIFIED_TYPE),
-						values.getAsBoolean(Tasks.COMPLETED),
-						values.getAsBoolean(Tasks.DELETED));
+				count = mDb.updateTasks(values, selection);
 				break;
 			case TASK_ID:
-				count = mDb.updateTask(Long.valueOf(uri.getPathSegments().get(1)),
-						values.getAsLong(Tasks.G_ID),
-						values.getAsLong(Tasks.LIST_ID),
-						values.getAsString(Tasks.NAME),
-						values.getAsString(Tasks.NOTES),
-						values.getAsLong(Tasks.LAST_MODIFIED),
-						values.getAsInteger(Tasks.LAST_MODIFIED_TYPE),
-						values.getAsBoolean(Tasks.COMPLETED),
-						values.getAsBoolean(Tasks.DELETED),
-						values.getAsInteger(Tasks.ORDER));
+				count = mDb.updateTask(Long.valueOf(uri.getPathSegments().get(1)), values);
 				break;
 			default:
 				throw new IllegalArgumentException("Unknown URI "+ uri);
@@ -202,6 +170,7 @@ public class TasksProvider extends ContentProvider {
 			Tasks._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, " +
 			Tasks.G_ID +" INTEGER, " +
 			Tasks.LIST_ID +" INTEGER, " +
+			Tasks.PARENT +" INTEGER" +
 			Tasks.NAME +" TEXT, " +
 			Tasks.NOTES +" TEXT, " +
 			Tasks.DATE +" INTEGER, " +
@@ -238,15 +207,26 @@ public class TasksProvider extends ContentProvider {
 		 * @param g_id
 		 * @param name
 		 * @param last_modified
+		 * @param last_modified_type
 		 * @return
 		 */
-		public long addList(Long g_id, String name, Long last_modified, int last_modified_type) {
-			ContentValues values = new ContentValues();
-			if(g_id != null) values.put(Lists.G_ID, g_id);
-			values.put(Lists.NAME, name);
+		public long addList(ContentValues values) {			
+			//Don't change id
+			values.remove(Lists._ID);
+			
+			//Deleted
 			values.put(Lists.DELETED, 0);
-			values.put(Lists.LAST_MODIFIED, (last_modified != null ? last_modified : System.currentTimeMillis()));
-			values.put(Lists.LAST_MODIFIED_TYPE, (last_modified != null ? last_modified_type : Lists.LAST_MODIFIED_TYPE_LOCAL));			
+
+			//Last modified
+			if(values.getAsLong(Lists.LAST_MODIFIED) == null) {
+				values.put(Lists.LAST_MODIFIED, System.currentTimeMillis());
+			}
+			
+			//Last modified type
+			Integer last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
+			if(last_modified_type == null) {
+				values.put(Lists.LAST_MODIFIED_TYPE, Lists.LAST_MODIFIED_TYPE_LOCAL);
+			} else if(last_modified_type != Lists.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Lists.LAST_MODIFIED_TYPE_SERVER) return -1;
 
 			SQLiteDatabase db = getWritableDatabase();
 			return db.insert(Lists.TABLE_NAME, null, values);
@@ -255,19 +235,29 @@ public class TasksProvider extends ContentProvider {
 		/**
 		 * Update a list in the db
 		 * @param id
-		 * @param g_id
-		 * @param name
-		 * @param last_modified
-		 * @param deleted
+		 * @param values
 		 * @return
 		 */
-		public int updateList (long id, Long g_id, String name, Long last_modified, Integer last_modified_type, Boolean deleted) {	
-			ContentValues values = new ContentValues();
-			if(g_id != null) values.put(Lists.G_ID, g_id);
-			if(name != null) values.put(Lists.NAME, name);
-			if(deleted != null) values.put(Lists.DELETED, deleted ? 1 : 0);
-			if(last_modified != null) values.put(Lists.LAST_MODIFIED, last_modified);
-			if(last_modified_type != null) values.put(Lists.LAST_MODIFIED_TYPE, last_modified_type);
+		public int updateList (Long id, ContentValues values) {
+			Integer deleted, last_modified_type;
+			Boolean flag;
+			
+			//Don't change id
+			values.remove(Lists._ID);
+			
+			//Deleted
+			deleted = values.getAsInteger(Lists.DELETED);
+			if(deleted != 0 && deleted != 1) {
+				if((flag = values.getAsBoolean(Lists.DELETED)) != null) values.put(Lists.DELETED, flag ? 1 : 0);
+				else values.remove(Lists.DELETED);
+			}
+			
+			//Last modified
+			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
+			if(last_modified_type != null && last_modified_type != Lists.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
+				values.remove(Lists.LAST_MODIFIED);
+				values.remove(Lists.LAST_MODIFIED_TYPE);
+			}
 
 			SQLiteDatabase db = getWritableDatabase();
 			return db.update(Lists.TABLE_NAME, values, Lists._ID+" = "+ id, null);
@@ -275,19 +265,36 @@ public class TasksProvider extends ContentProvider {
 		
 		/**
 		 * Update lists in the db by selection
-		 * @param where
-		 * @param last_modified
-		 * @param deleted
+		 * @param values
+		 * @param selection
 		 * @return
 		 */
-		public int updateLists (String where, Long last_modified, Integer last_modified_type, Boolean deleted) {	
-			ContentValues values = new ContentValues();
-			if(deleted != null) values.put(Lists.DELETED, deleted ? 1 : 0);
-			if(last_modified != null) values.put(Lists.LAST_MODIFIED, last_modified);
-			if(last_modified_type != null) values.put(Lists.LAST_MODIFIED_TYPE, last_modified_type);
+		public int updateLists (ContentValues values, String selection) {
+			Boolean flag;
+			Integer deleted, last_modified_type;			
+
+			//Don't change ...
+			values.remove(Lists._ID);
+			values.remove(Lists.ORDER);
+			values.remove(Lists.NAME);
+			values.remove(Lists.G_ID);
+			
+			//Deleted
+			deleted = values.getAsInteger(Lists.DELETED);
+			if(deleted != 0 && deleted != 1) {
+				if((flag = values.getAsBoolean(Lists.DELETED)) != null) values.put(Lists.DELETED, flag ? 1 : 0);
+				else values.remove(Lists.DELETED);
+			}
+			
+			//Last modified
+			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
+			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
+				values.remove(Lists.LAST_MODIFIED);
+				values.remove(Lists.LAST_MODIFIED_TYPE);
+			}
 
 			SQLiteDatabase db = getWritableDatabase();
-			return db.update(Lists.TABLE_NAME, values, where, null);
+			return db.update(Lists.TABLE_NAME, values, selection, null);
 		}
 		
 		/**
@@ -298,7 +305,7 @@ public class TasksProvider extends ContentProvider {
 		public int removeList (long id) {
 			SQLiteDatabase db = getWritableDatabase();
 			
-			db.delete(Tasks.TABLE_NAME, Tasks.LIST_ID +" = "+ id, null);		
+			removeTasks(Tasks.LIST_ID +" = "+ id);		
 			return db.delete(Lists.TABLE_NAME, Lists._ID +" = "+ id, null);
 		}
 		
@@ -307,15 +314,16 @@ public class TasksProvider extends ContentProvider {
 		 * @param id
 		 * @return
 		 */
-		public int removeLists (String where) {
+		public int removeLists (String selection) {
 			SQLiteDatabase db = getWritableDatabase();
 			
-			Cursor c = db.query(Lists.TABLE_NAME, new String[] {Lists._ID}, where, null, null, null, null);
+			Cursor c = db.query(Lists.TABLE_NAME, new String[] {Lists._ID}, selection, null, null, null, null);
 			if(c.getCount() > 0) {
 				//Remove tasks in these lists
 				Long[] listIds = new Long[c.getCount()];
-				for(int i=0; c.moveToNext(); i++) listIds[i] = c.getLong(c.getColumnIndex(Lists._ID)); 
-				removeTasks(Tasks.LIST_ID +" IN ("+ TextUtils.join(", ", listIds) +")");
+				for(int i=0; c.moveToNext(); i++) listIds[i] = c.getLong(c.getColumnIndex(Lists._ID));
+				c.close();
+				removeTasks(Tasks.LIST_ID +" IN ("+ TextUtils.join(",", listIds) +")");
 					
 				return db.delete(Lists.TABLE_NAME, Lists._ID +" IN ("+ TextUtils.join(", ", listIds) +")", null);
 			} else return 0;
@@ -326,118 +334,205 @@ public class TasksProvider extends ContentProvider {
 		 * ----------------------------------------------------------------*/
 		
 		/**
-		 * Add a new task to the db
-		 * @param g_id
-		 * @param list_id
-		 * @param name
-		 * @param notes
-		 * @param last_modified
-		 * @param completed
+		 * Add a new task to the db.
+		 * @param values
 		 * @return
 		 */
-		public long addTask(Long g_id, long list_id, String name, String notes, Long last_modified, int last_modified_type, Boolean completed) {		
-			ContentValues values = new ContentValues();
+		public long addTask(ContentValues values) {
+			SQLiteDatabase db = getWritableDatabase();
+			Long parent, previous, listId;
+			Integer completed, last_modified_type, order;
+			Boolean flag;
+			Cursor c;
 			
-			//Relations
-			if(g_id != null) values.put(Tasks.G_ID, g_id);
-			values.put(Tasks.LIST_ID, list_id);
+			//Don't change id
+			values.remove(Tasks._ID);
 			
-			//Attributes
-			values.put(Tasks.NAME, name);
-			values.put(Tasks.NOTES, notes);
-			values.put(Tasks.LAST_MODIFIED, (last_modified != null ? last_modified : System.currentTimeMillis()));
-			values.put(Tasks.LAST_MODIFIED_TYPE, (last_modified != null ? last_modified_type : Tasks.LAST_MODIFIED_TYPE_LOCAL));
-			values.put(Tasks.COMPLETED, (completed != null && completed) ? 1 : 0);
+			//List id
+			listId = values.getAsLong(Tasks.LIST_ID);
+			if(!db.query(Lists.TABLE_NAME, null, Lists._ID +" = "+ listId, null, null, null, null).moveToFirst()) return -1;
+			
+			//Last modified
+			if(values.getAsLong(Tasks.LAST_MODIFIED) == null) {
+				values.put(Tasks.LAST_MODIFIED, System.currentTimeMillis());
+			}
+			
+			//Last modified type
+			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
+			if(last_modified_type == null) {
+				values.put(Tasks.LAST_MODIFIED_TYPE, Tasks.LAST_MODIFIED_TYPE_LOCAL);
+			} else if(last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) return -1;
+
+			//Completed
+			completed = values.getAsInteger(Tasks.COMPLETED);
+			if(completed != 0 && completed != 1) {
+				if((flag = values.getAsBoolean(Tasks.COMPLETED)) != null) values.put(Tasks.COMPLETED, flag ? 1 : 0);
+				else values.remove(Tasks.COMPLETED);
+			}
+			
+			//Deleted
 			values.put(Tasks.DELETED, 0);
 			
+			//Parent
+			 //No parent => parent = 0
+			if((parent = values.getAsLong(Tasks.PARENT)) == null) parent = 0L;
+			 //check if parent exists TODO: exclude itself and it's childs
+			else if(!db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) return -1;
+			values.put(Tasks.PARENT, parent);
+			
 			//Order
-			SQLiteDatabase db = getWritableDatabase();
-			Cursor c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ list_id, null, Tasks.LIST_ID, null, null);
-			values.put(Tasks.ORDER, c.moveToFirst() ? c.getInt(0) + 1 : 0);
+			 //No previous => put at the end of the parent's list
+			if((previous = values.getAsLong(Tasks.PREVIOUS)) == null) {
+				c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+				values.put(Tasks.ORDER, c.moveToFirst() ? c.getInt(0) + 1 : 0);
+			} else {
+				//check if previous exists and get order
+				c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+				if(!c.moveToFirst()) return -1;
+				order = c.getInt(c.getColumnIndex(Tasks.ORDER)) + 1;
+				
+				//make room in db
+				ContentValues updateOrderValues = new ContentValues();
+				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
+				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" >= "+ order, null);
+				
+				values.put(Tasks.ORDER, order);
+			}
 			
 			return db.insert(Tasks.TABLE_NAME, null, values);
 		}
 		
 		/**
 		 * Update a task in the db
-		 * @param id
-		 * @param g_id
-		 * @param list_id
-		 * @param name
-		 * @param notes
-		 * @param last_modified
-		 * @param completed
-		 * @param deleted
+		 * @param values
 		 * @return the number of rows affected, typically 1 or 0 if something went wrong
 		 */
-		public int updateTask (long id, Long g_id, Long list_id, String name, String notes, Long last_modified, Integer last_modified_type, Boolean completed, Boolean deleted, Integer order) {	
+		public int updateTask (long id, ContentValues values) {	
 			SQLiteDatabase db = getWritableDatabase();
-			Cursor c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ id, null, null, null, null);
-			if(!c.moveToFirst()) return 0;
-			ContentValues values = new ContentValues();
+			Long parent, previous, listId, oldListId, oldParent, oldPrevious;
+			Integer completed, deleted, last_modified_type, order, oldOrder;
+			Boolean flag;
+			Cursor task, c;
 			
-			//Relations
-			if(g_id != null) values.put(Tasks.G_ID, g_id);
-			if(list_id != null) values.put(Tasks.LIST_ID, list_id);
+			//Get existing task
+			task = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ id, null, null, null, null);
+			if(!task.moveToFirst()) return 0;
+			oldListId = task.getLong(task.getColumnIndex(Tasks.LIST_ID));
+			oldParent = task.getLong(task.getColumnIndex(Tasks.PARENT));
+			oldOrder = task.getInt(task.getColumnIndex(Tasks.ORDER));
+			c = db.query(Tasks.TABLE_NAME, null, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" < "+ oldOrder, null, null, null, Tasks.ORDER +" DESC");
+			oldPrevious = c.moveToFirst() ? c.getLong(c.getColumnIndex(Tasks._ID)) : null;
 			
-			//Attributes
-			if(name != null) values.put(Tasks.NAME, name);
-			if(notes != null) values.put(Tasks.NOTES, notes);
-			if(completed != null) values.put(Tasks.COMPLETED, completed ? 1 : 0);
-			if(deleted != null) values.put(Tasks.DELETED, deleted ? 1 : 0);
-			if(last_modified != null) values.put(Tasks.LAST_MODIFIED, last_modified);
-			if(last_modified_type != null) values.put(Tasks.LAST_MODIFIED_TYPE, last_modified_type);
+			//Don't change id
+			values.remove(Tasks._ID);
 			
-			//Order
-			if(order != null) {
-				int oldOrder = c.getInt(c.getColumnIndex(Tasks.ORDER));
-				int oldListId = c.getInt(c.getColumnIndex(Tasks.LIST_ID));
-				
-				//Order or list changed
-				if(order != oldOrder || list_id != oldListId) {
-					ContentValues updateOrderValues = new ContentValues();
-					
-					//Update source list
-					updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" - 1");
-					db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.ORDER +" > "+ oldOrder, null);
-					
-					//Update destination list
-					updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
-					db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ list_id +" AND "+ Tasks.ORDER +" > "+ order, null);
-				}
+			//List id
+			listId = values.getAsLong(Tasks.LIST_ID);
+			if(listId == null) listId = task.getLong(task.getColumnIndex(Tasks.LIST_ID));
+			else if(!db.query(Lists.TABLE_NAME, null, Lists._ID +" = "+ listId, null, null, null, null).moveToFirst()) return -1;
+
+			//Completed
+			completed = values.getAsInteger(Tasks.COMPLETED);
+			if(completed != 0 && completed != 1) {
+				if((flag = values.getAsBoolean(Tasks.COMPLETED)) != null) values.put(Tasks.COMPLETED, flag ? 1 : 0);
+				else values.remove(Tasks.COMPLETED);
 			}
 			
-			c.close();
+			//Deleted
+			deleted = values.getAsInteger(Tasks.DELETED);
+			if(deleted != 0 && deleted != 1) {
+				if((flag = values.getAsBoolean(Tasks.DELETED)) != null) values.put(Tasks.DELETED, flag ? 1 : 0);
+				else values.remove(Tasks.DELETED);
+			}
+			
+			//Last modified
+			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
+			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
+				values.remove(Tasks.LAST_MODIFIED);
+				values.remove(Tasks.LAST_MODIFIED_TYPE);
+			}
+			
+			//Parent
+			 //No parent => Old parent or 0 if new list_id
+			if((parent = values.getAsLong(Tasks.PARENT)) == null) {
+				if(listId != task.getLong(task.getColumnIndex(Tasks.LIST_ID))) parent = 0L;
+				else parent = task.getLong(task.getColumnIndex(Tasks.PARENT));
+			}
+			 //check if parent exists TODO: exclude itself and it's childs
+			else if(!db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) return -1;
+			values.put(Tasks.PARENT, parent);
+			
+			//Order
+			previous = values.getAsLong(Tasks.PREVIOUS);			
+			if(listId != oldListId || parent != oldParent || (previous != null && previous != oldPrevious)) {
+				if(previous == null) {
+					//No previous => put at the end of the parent's list
+					c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+					order = c.moveToFirst() ? c.getInt(0) + 1 : 0;
+				} else {
+					//check if previous exists and get order
+					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+					if(!c.moveToFirst()) return -1;
+					order = c.getInt(c.getColumnIndex(Tasks.ORDER)) + 1;
+				}
+				values.put(Tasks.ORDER, order);
+				
+				ContentValues updateOrderValues = new ContentValues();
+				
+				//Update source list
+				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" - 1");
+				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" > "+ oldOrder, null);
+				
+				//Update destination list
+				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
+				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" > "+ order, null);
+			} else values.remove(Tasks.ORDER);
+			
+			task.close();
 			return db.update(Tasks.TABLE_NAME, values, Tasks._ID +" = "+ id, null);
 		}
 		
 		/**
 		 * Update multiple tasks in the db
-		 * @param where
-		 * @param list_id
-		 * @param notes
-		 * @param last_modified
-		 * @param completed
-		 * @param deleted
+		 * @param values
+		 * @param selection
 		 * @return
 		 */
-		public int updateTasks (String where, Long list_id, String notes, Long last_modified, Integer last_modified_type, Boolean completed, Boolean deleted) {	
-			SQLiteDatabase db = getWritableDatabase();
-			ContentValues values = new ContentValues();
-			
-			//Relations
-			if(list_id != null) values.put(Tasks.LIST_ID, list_id);
-			
-			//Attributes
-			if(notes != null) values.put(Tasks.NOTES, notes);
-			if(completed != null) values.put(Tasks.COMPLETED, completed ? 1 : 0);
-			if(deleted != null) values.put(Tasks.DELETED, deleted ? 1 : 0);
-			if(last_modified != null) values.put(Tasks.LAST_MODIFIED, last_modified);
-			if(last_modified_type != null) values.put(Tasks.LAST_MODIFIED_TYPE, last_modified_type);
-			
-			//Order
+		public int updateTasks (ContentValues values, String selection) {
+			Boolean flag;
+			Integer deleted, completed, last_modified_type;			
 
-			return db.update(Tasks.TABLE_NAME, values, where, null);
+			//Don't change ...
+			values.remove(Tasks._ID);
+			values.remove(Tasks.PARENT);
+			values.remove(Tasks.ORDER);
+			values.remove(Tasks.NAME);
+			values.remove(Tasks.G_ID);
+			values.remove(Tasks.LIST_ID);
+
+			//Completed
+			completed = values.getAsInteger(Tasks.COMPLETED);
+			if(completed != 0 && completed != 1) {
+				if((flag = values.getAsBoolean(Tasks.COMPLETED)) != null) values.put(Tasks.COMPLETED, flag ? 1 : 0);
+				else values.remove(Tasks.COMPLETED);
+			}
+			
+			//Deleted
+			deleted = values.getAsInteger(Tasks.DELETED);
+			if(deleted != 0 && deleted != 1) {
+				if((flag = values.getAsBoolean(Tasks.DELETED)) != null) values.put(Tasks.DELETED, flag ? 1 : 0);
+				else values.remove(Tasks.DELETED);
+			}
+			
+			//Last modified
+			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
+			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
+				values.remove(Tasks.LAST_MODIFIED);
+				values.remove(Tasks.LAST_MODIFIED_TYPE);
+			}
+
+			SQLiteDatabase db = getWritableDatabase();
+			return db.update(Tasks.TABLE_NAME, values, selection, null);
 		}
 		
 		/**
@@ -447,6 +542,10 @@ public class TasksProvider extends ContentProvider {
 		 */
 		public int removeTask (long id) {
 			SQLiteDatabase db = getWritableDatabase();
+			
+			//Remove childs
+			removeTasks(Tasks.PARENT +" = "+ id);
+			
 			return db.delete(Tasks.TABLE_NAME, Tasks._ID +" = "+ id, null);
 		}
 		
@@ -455,9 +554,19 @@ public class TasksProvider extends ContentProvider {
 		 * @param id
 		 * @return
 		 */
-		public int removeTasks (String where) {
-			SQLiteDatabase db = getWritableDatabase();
-			return db.delete(Tasks.TABLE_NAME, where, null);
+		public int removeTasks (String selection) {
+			SQLiteDatabase db = getWritableDatabase();			
+			
+			//Remove childs
+			Cursor c = db.query(Tasks.TABLE_NAME, null, Tasks.PARENT +" IN(SELECT "+ Tasks._ID +" FROM "+ Tasks.TABLE_NAME +" WHERE "+ selection +")", null, null, null, null);
+			if(c.getCount() > 0) {
+				Long[] ids = new Long[c.getCount()];
+				for(int i=0; c.moveToNext(); i++) ids[i] = c.getLong(c.getColumnIndex(Tasks._ID)); 
+				c.close();
+				removeTasks(Tasks._ID +" IN ("+ TextUtils.join(",", ids) +")");
+			}
+			
+			return db.delete(Tasks.TABLE_NAME, selection, null);
 		}
 	}
 
