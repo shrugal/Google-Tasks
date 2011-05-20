@@ -60,7 +60,7 @@ public class SyncService extends Service {
 	/* Statics */
 	private static final Object sSyncAdapterLock = new Object();
 
-	private static SyncAdapter sSyncAdapter = null;
+	private static AbstractThreadedSyncAdapter sSyncAdapter = null;
 	
 	/* Members */
 	private AccountManager mAccManager;
@@ -75,7 +75,7 @@ public class SyncService extends Service {
 		Log.i("Google Tasks", "SyncService: onCreate()");
 		synchronized (sSyncAdapterLock) {
 			if (sSyncAdapter == null) {
-				sSyncAdapter = new SyncAdapter(getApplicationContext(), false);
+				sSyncAdapter = new com.shrugal.googletasks.sync.SyncAdapter(getApplicationContext(), false);//new SyncAdapter(getApplicationContext(), false);
 			}
 		}
 	}
