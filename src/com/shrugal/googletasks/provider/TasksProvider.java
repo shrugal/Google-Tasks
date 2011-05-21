@@ -245,12 +245,16 @@ public class TasksProvider extends ContentProvider {
 			
 			//Don't change id
 			values.remove(Lists._ID);
-			
+
 			//Deleted
-			deleted = values.getAsInteger(Lists.DELETED);
-			if(deleted != 0 && deleted != 1) {
-				if((flag = values.getAsBoolean(Lists.DELETED)) != null) values.put(Lists.DELETED, flag ? 1 : 0);
-				else values.remove(Lists.DELETED);
+			flag = values.getAsBoolean(Tasks.DELETED);
+			deleted = values.getAsInteger(Tasks.DELETED);
+			if(flag != null) {
+				values.put(Tasks.DELETED, flag ? 1 : 0);
+			} else if(deleted != null) {
+				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+			} else {
+				values.remove(Tasks.DELETED);
 			}
 			
 			//Last modified
@@ -276,15 +280,19 @@ public class TasksProvider extends ContentProvider {
 
 			//Don't change ...
 			values.remove(Lists._ID);
+			values.remove(Lists.G_ID);
 			values.remove(Lists.ORDER);
 			values.remove(Lists.NAME);
-			values.remove(Lists.G_ID);
-			
+
 			//Deleted
-			deleted = values.getAsInteger(Lists.DELETED);
-			if(deleted != 0 && deleted != 1) {
-				if((flag = values.getAsBoolean(Lists.DELETED)) != null) values.put(Lists.DELETED, flag ? 1 : 0);
-				else values.remove(Lists.DELETED);
+			flag = values.getAsBoolean(Tasks.DELETED);
+			deleted = values.getAsInteger(Tasks.DELETED);
+			if(flag != null) {
+				values.put(Tasks.DELETED, flag ? 1 : 0);
+			} else if(deleted != null) {
+				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+			} else {
+				values.remove(Tasks.DELETED);
 			}
 			
 			//Last modified
@@ -606,17 +614,25 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Tasks.NAME);
 
 			//Completed
+			flag = values.getAsBoolean(Tasks.COMPLETED);
 			completed = values.getAsInteger(Tasks.COMPLETED);
-			if(completed != 0 && completed != 1) {
-				if((flag = values.getAsBoolean(Tasks.COMPLETED)) != null) values.put(Tasks.COMPLETED, flag ? 1 : 0);
-				else values.remove(Tasks.COMPLETED);
+			if(flag != null) {
+				values.put(Tasks.COMPLETED, flag ? 1 : 0);
+			} else if(completed != null) {
+				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+			} else {
+				values.remove(Tasks.COMPLETED);
 			}
-			
+
 			//Deleted
+			flag = values.getAsBoolean(Tasks.DELETED);
 			deleted = values.getAsInteger(Tasks.DELETED);
-			if(deleted != 0 && deleted != 1) {
-				if((flag = values.getAsBoolean(Tasks.DELETED)) != null) values.put(Tasks.DELETED, flag ? 1 : 0);
-				else values.remove(Tasks.DELETED);
+			if(flag != null) {
+				values.put(Tasks.DELETED, flag ? 1 : 0);
+			} else if(deleted != null) {
+				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+			} else {
+				values.remove(Tasks.DELETED);
 			}
 			
 			//Last modified
