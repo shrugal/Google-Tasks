@@ -25,6 +25,8 @@ public final class Tasks implements BaseColumns {
 	public static final String COMPLETED = "completed";
 	public static final String DELETED = "deleted";
 	public static final String ORDER = "sort";
+	public static final String LEFT = "lft";
+	public static final String RIGHT = "rgt";
 
 	//Defaults
 	public static final String DEFAULT_ORDER = LIST_ID +" ASC, "+ NAME +" ASC";

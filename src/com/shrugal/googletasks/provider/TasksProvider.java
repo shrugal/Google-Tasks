@@ -158,28 +158,29 @@ public class TasksProvider extends ContentProvider {
 		private static final String DB_NAME = "googletasks";
 		
 		//Create Querys
-		private static final String LISTS_CREATE_QUERY = "CREATE TABLE " + Lists.TABLE_NAME + " (" +
-			Lists._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, " +
-			Lists.G_ID +" INTEGER, " +
-			Lists.NAME +" TEXT, " +
-			Lists.LAST_MODIFIED +" INTEGER, " +
-			Lists.LAST_MODIFIED_TYPE +" INTEGER, " +
-			Lists.DELETED +" INTEGER, " +
-			Lists.ORDER +" INTEGER" +
+		private static final String LISTS_CREATE_QUERY = "CREATE TABLE "+ Lists.TABLE_NAME +" ("+
+			Lists._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, "+
+			Lists.G_ID +" INTEGER, "+
+			Lists.NAME +" TEXT, "+
+			Lists.LAST_MODIFIED +" INTEGER, "+
+			Lists.LAST_MODIFIED_TYPE +" INTEGER, "+
+			Lists.DELETED +" INTEGER, "+
+			Lists.ORDER +" INTEGER"+
 		")";
-		private static final String TASKS_CREATE_QUERY = "CREATE TABLE " + Tasks.TABLE_NAME + " (" +
-			Tasks._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, " +
-			Tasks.G_ID +" INTEGER, " +
-			Tasks.LIST_ID +" INTEGER, " +
-			Tasks.PARENT +" INTEGER, " +
-			Tasks.NAME +" TEXT, " +
-			Tasks.NOTES +" TEXT, " +
-			Tasks.DATE +" INTEGER, " +
-			Tasks.LAST_MODIFIED +" INTEGER, " +
-			Tasks.LAST_MODIFIED_TYPE +" INTEGER, " +
-			Tasks.COMPLETED +" INTEGER, " +
-			Tasks.DELETED +" INTEGER, " +
-			Tasks.ORDER +" INTEGER" +
+		private static final String TASKS_CREATE_QUERY = "CREATE TABLE "+ Tasks.TABLE_NAME +" ("+
+			Tasks._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, "+
+			Tasks.G_ID +" INTEGER, "+
+			Tasks.LIST_ID +" INTEGER, "+
+			Tasks.PARENT +" INTEGER, "+
+			Tasks.LEFT +" INTEGER, "+
+			Tasks.RIGHT +" INTEGER, "+
+			Tasks.NAME +" TEXT, "+
+			Tasks.NOTES +" TEXT, "+
+			Tasks.DATE +" INTEGER, "+
+			Tasks.LAST_MODIFIED +" INTEGER, "+
+			Tasks.LAST_MODIFIED_TYPE +" INTEGER, "+
+			Tasks.COMPLETED +" INTEGER, "+
+			Tasks.DELETED +" INTEGER"+
 		")";
 		
 		public DatabaseHelper(Context context) {
@@ -314,7 +315,7 @@ public class TasksProvider extends ContentProvider {
 		public int removeList (long id) {
 			SQLiteDatabase db = getWritableDatabase();
 			
-			removeTasks(Tasks.LIST_ID +" = "+ id);		
+			removeTasks(Tasks.LIST_ID +" = "+ id);
 			return db.delete(Lists.TABLE_NAME, Lists._ID +" = "+ id, null);
 		}
 		
@@ -389,12 +390,14 @@ public class TasksProvider extends ContentProvider {
 		public long addTask(ContentValues values) throws IllegalArgumentException {
 			SQLiteDatabase db = getWritableDatabase();
 			Long parent, previous, listId;
-			Integer completed, last_modified_type, order;
+			Integer completed, last_modified_type, left;
 			Boolean flag;
 			Cursor c;
 			
-			//Don't set id
+			//Don't set ...
 			values.remove(Tasks._ID);
+			values.remove(Tasks.LEFT);
+			values.remove(Tasks.RIGHT);
 			
 			//List id
 			listId = values.getAsLong(Tasks.LIST_ID);
@@ -438,31 +441,49 @@ public class TasksProvider extends ContentProvider {
 			}
 			values.put(Tasks.PARENT, parent);
 			
-			//Order
+			//Left, Right
 			if((previous = values.getAsLong(Tasks.PREVIOUS)) == null) {
 				//No previous => put at the end of the parent's list
-				c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
-				values.put(Tasks.ORDER, c.moveToFirst() ? c.getInt(0) + 1 : 0);
+				if(parent != 0) {
+					//Parent exists => take info from parent
+					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent, null, null, null, null);
+					if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+					left = c.getInt(c.getColumnIndex(Tasks.RIGHT));
+				} else {
+					//Parent does not exist => take info from neighbors or use start value
+					c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.RIGHT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+					left = c.moveToFirst() ? c.getInt(0) + 1 : 0;
+				}
 			} else {
 				if(parent == previous) {
-					//parent = previous (possibly 0) => move to the top
-					order = 0;
-				} else {
-					//check if previous exists and get order
-					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
-					if(!c.moveToFirst()) {
-						throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+					//Put at the top of the list
+					if(parent != 0) {
+						//Parent exists => take info from parent
+						c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.LEFT)) + 1;
+					} else {
+						//Parent does not exist => take info from neighbors or use start value
+						c = db.query(Tasks.TABLE_NAME, new String[] {"MIN("+ Tasks.LEFT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+						left = c.moveToFirst() ? c.getInt(0) : 0;
 					}
-					order = c.getInt(c.getColumnIndex(Tasks.ORDER)) + 1;
+				} else {
+					//Check if previous exists and set left
+					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+					if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+					left = c.getInt(c.getColumnIndex(Tasks.RIGHT)) + 1;
 				}
-				
-				//make room in db
-				ContentValues updateOrderValues = new ContentValues();
-				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
-				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" >= "+ order, null);
-				
-				values.put(Tasks.ORDER, order);
 			}
+			values.put(Tasks.LEFT, left);
+			values.put(Tasks.RIGHT, left+1);
+			
+			//Make room in db
+			ContentValues updateValues = new ContentValues();
+			updateValues.put(Tasks.LEFT, Tasks.LEFT +" + 2");
+			db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
+			updateValues.clear();
+			updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" + 2");
+			db.update(Tasks.TABLE_NAME, updateValues, Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
 			
 			return db.insert(Tasks.TABLE_NAME, null, values);
 		}
@@ -475,12 +496,14 @@ public class TasksProvider extends ContentProvider {
 		public int updateTask (long id, ContentValues values) throws IllegalArgumentException {	
 			SQLiteDatabase db = getWritableDatabase();
 			Long parent, previous, listId, oldListId, oldParent, oldPrevious;
-			Integer completed, deleted, last_modified_type, order, oldOrder;
+			Integer completed, deleted, last_modified_type, left, space, oldLeft, oldRight;
 			Boolean flag;
 			Cursor c;
 			
-			//Don't change id
+			//Don't change ...
 			values.remove(Tasks._ID);
+			values.remove(Tasks.LEFT);
+			values.remove(Tasks.RIGHT);
 			
 			//Get existing task
 			c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ id, null, null, null, null);
@@ -489,15 +512,12 @@ public class TasksProvider extends ContentProvider {
 			oldListId = c.getLong(c.getColumnIndex(Tasks.LIST_ID));
 			 //parent
 			oldParent = c.getLong(c.getColumnIndex(Tasks.PARENT));
-			 //order
-			oldOrder = c.getInt(c.getColumnIndex(Tasks.ORDER));
+			 //left, right
+			oldLeft = c.getInt(c.getColumnIndex(Tasks.LEFT));
+			oldRight = c.getInt(c.getColumnIndex(Tasks.RIGHT));
 			 //previous
-			if(oldOrder == 0) {
-				oldPrevious = oldParent;
-			} else {
-				c = db.query(Tasks.TABLE_NAME, null, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" < "+ oldOrder, null, null, null, Tasks.ORDER +" DESC");
-				oldPrevious = c.moveToFirst() ? c.getLong(c.getColumnIndex(Tasks._ID)) : null;
-			}
+			c = db.query(Tasks.TABLE_NAME, null, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.RIGHT +" = "+ (oldLeft-1), null, null, null, null);
+			oldPrevious = c.moveToFirst() ? c.getLong(c.getColumnIndex(Tasks._ID)) : 0L;
 			c.close();
 			
 			//List id
@@ -556,9 +576,65 @@ public class TasksProvider extends ContentProvider {
 				throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
 			}
 			
-			//Order
-			previous = values.getAsLong(Tasks.PREVIOUS);			
-			if(listId != oldListId || parent != oldParent || (previous != null && previous != oldPrevious)) {
+			//Left, Right
+			if(((previous = values.getAsLong(Tasks.PREVIOUS)) != null && previous != oldPrevious) || listId != oldListId || parent != oldParent) {
+				if(previous == null) {
+					//No previous => put at the end of the parent's list
+					if(parent != 0) {
+						//Parent exists => take info from parent
+						c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.RIGHT));
+					} else {
+						//Parent does not exist => take info from neighbors or use start value
+						c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.RIGHT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+						left = c.moveToFirst() ? c.getInt(0) + 1 : 0;
+					}
+				} else {
+					if(parent == previous) {
+						//Put at the top of the list
+						if(parent != 0) {
+							//Parent exists => take info from parent
+							c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent, null, null, null, null);
+							if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+							left = c.getInt(c.getColumnIndex(Tasks.LEFT)) + 1;
+						} else {
+							//Parent does not exist => take info from neighbors or use start value
+							c = db.query(Tasks.TABLE_NAME, new String[] {"MIN("+ Tasks.LEFT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+							left = c.moveToFirst() ? c.getInt(0) : 0;
+						}
+					} else if(previous == id) {
+						//thats not ok
+						throw new IllegalArgumentException("Illegal previous "+ previous+" is the same as "+ id);
+					} else {
+						//Check if previous exists and set left
+						c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.RIGHT)) + 1;
+					}
+				}
+				space = oldRight - oldLeft;
+				values.put(Tasks.LEFT, left);
+				values.put(Tasks.RIGHT, left + space);
+				
+				//Make room in destination list
+				ContentValues updateValues = new ContentValues();
+				updateValues.put(Tasks.LEFT, Tasks.LEFT +" + "+ space);
+				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" >= "+ left, null);
+				updateValues.clear();
+				updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" + "+ space);
+				db.update(Tasks.TABLE_NAME, updateValues, Tasks.RIGHT +" >= "+ left, null);
+				
+				//move
+				int result = db.update(Tasks.TABLE_NAME, values, Tasks._ID +" = "+ id, null);
+				
+				return result;
+			}
+			return 0;
+			
+			
+			/*
+			if(listId != oldListId || parent != oldParent || ((previous = values.getAsLong(Tasks.PREVIOUS)) != null && previous != oldPrevious)) {
 				if(previous == null) {
 					//No previous => put at the end of the parent's list
 					c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
@@ -588,11 +664,10 @@ public class TasksProvider extends ContentProvider {
 				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" > "+ oldOrder, null);
 				
 				//Update destination list
-				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
+				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +"+ 1");
 				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" > "+ order, null);
 			} else values.remove(Tasks.ORDER);
-			
-			return db.update(Tasks.TABLE_NAME, values, Tasks._ID +" = "+ id, null);
+			*/
 		}
 		
 		/**
