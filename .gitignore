@@ -1,7 +1,4 @@
 .classpath
-
 .project
-
-.gitignore
 gen/
 bin/
