@@ -1,22 +1,30 @@
 package com.shrugal.googletasks.tasks;
 
+import android.content.Context;
 import android.database.Cursor;
 import android.os.Bundle;
 import android.support.v4.app.ListFragment;
+import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.FrameLayout;
-import android.widget.SimpleCursorAdapter;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.ResourceCursorAdapter;
+import android.widget.TextView;
 
 import com.shrugal.googletasks.R;
-import com.shrugal.googletasks.R.id;
-import com.shrugal.googletasks.R.layout;
 import com.shrugal.googletasks.provider.Tasks;
 
 public class TasksFragment extends ListFragment {
 	
+	/* Finals */
+	private static final String[] DB_PROJECTION = new String[] {Tasks._ID, Tasks.NAME, Tasks.COMPLETED, Tasks.RANK, Tasks.CHILDS};
+	private static final String TAG = "Google Tasks";
+	
 	private Cursor mCursor;
-	private SimpleCursorAdapter mAdapter;
+	private ResourceCursorAdapter mAdapter;
 	private long mListId;
 	
 	@Override
@@ -47,19 +55,18 @@ public class TasksFragment extends ListFragment {
 		if(mCursor != null) mCursor.close();
 	}
 	
+	public long getListId () {
+		return mListId;
+	}
+	
 	public void initList () {
 		//Get cursor
-		String[] projection = new String[] {Tasks._ID, Tasks.NAME};
 		String selection = Tasks.LIST_ID +" = "+ mListId +" AND "+ Tasks.DELETED +" = 0";
-		mCursor = getActivity().getContentResolver().query(Tasks.CONTENT_URI, projection, selection, null, null);
-		
+		mCursor = getActivity().getContentResolver().query(Tasks.CONTENT_URI, DB_PROJECTION.clone(), selection, null, null);
 		//Init adapter
-		mAdapter = new SimpleCursorAdapter(getActivity(), R.layout.tasks_list_item, mCursor, 
-			new String[] {Tasks.NAME},
-			new int[] {R.id.name}
-		);
-		mAdapter.setViewBinder(new ViewBinder());
-		setListAdapter(mAdapter);
+		mAdapter = new TasksAdapter(getActivity(), R.layout.tasks_list_item, mCursor, this);
+		//mAdapter = new TestAdapter(getActivity(), R.layout.tasks_list_item, mCursor);
+		getListView().setAdapter(mAdapter);
 		getListView().setOnItemClickListener((TasksActivity) getActivity());
 		getListView().setOnCreateContextMenuListener(getActivity());
 		
@@ -68,15 +75,37 @@ public class TasksFragment extends ListFragment {
 		getListView().setLayoutParams(new FrameLayout.LayoutParams(width, FrameLayout.LayoutParams.WRAP_CONTENT));
 	}
 	
-	private class ViewBinder implements SimpleCursorAdapter.ViewBinder {
+	private class TestAdapter extends ResourceCursorAdapter {
+
+		public TestAdapter(Context context, int layout, Cursor c) {
+			super(context, layout, c);
+		}
+		
 		@Override
-		public boolean setViewValue(View view, Cursor cursor, int columnIndex) {
-			//Checkbox
-			if(view instanceof CheckBox) {
-				CheckBox cb = (CheckBox) view;
-				cb.setChecked(cursor.getInt(columnIndex) == 1);
-			}
-			return false;
-		}		
+		public View getView(int position, View convertView, ViewGroup parent) {
+			Log.i(TAG, "GetView: "+ position);
+			return super.getView(position, convertView, parent);
+		}
+		
+		@Override
+		public void bindView(View view, final Context context, Cursor c) {
+			String name = c.getString(c.getColumnIndex(Tasks.NAME));
+			
+			//Name
+			TextView text = (TextView) view.findViewById(R.id.name);
+			text.setText(name);
+		}
+		
+		@Override
+		public void notifyDataSetChanged () {
+			Log.i(TAG, "NotifyDataSetChanged()");
+			super.notifyDataSetChanged();
+		}
+		
+		@Override
+		public void notifyDataSetInvalidated() {
+			Log.i(TAG, "NotifyDataSetInvalidated()");
+			super.notifyDataSetInvalidated();
+		}
 	}
 }

@@ -1,7 +1,5 @@
 package com.shrugal.googletasks.tasks;
 
-import java.util.ArrayList;
-
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.app.AlertDialog;
@@ -11,6 +9,7 @@ import android.content.ContentValues;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.v4.app.FragmentActivity;
@@ -27,6 +26,9 @@ import android.view.View.OnCreateContextMenuListener;
 import android.widget.AdapterView;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.AdapterView.OnItemClickListener;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
+import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -34,11 +36,6 @@ import android.widget.Toast;
 import com.shrugal.googletasks.PreferencesActivity;
 import com.shrugal.googletasks.R;
 import com.shrugal.googletasks.WorkspaceView;
-import com.shrugal.googletasks.R.id;
-import com.shrugal.googletasks.R.layout;
-import com.shrugal.googletasks.R.menu;
-import com.shrugal.googletasks.R.string;
-import com.shrugal.googletasks.WorkspaceView.OnWorkspaceListener;
 import com.shrugal.googletasks.provider.Lists;
 import com.shrugal.googletasks.provider.Tasks;
 import com.shrugal.googletasks.provider.TasksProvider;
@@ -49,8 +46,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	private static final String TAG = "Google Tasks";
 	
 	/* Finals */
-	private static final int ACTION_ADD = 0;
-	private static final int ACTION_EDIT = 1;
+	static final int ACTION_ADD = 0;
+	static final int ACTION_EDIT = 1;
 	
 	/* Members */
 	private long[] mListIds;
@@ -133,9 +130,12 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 		switch(v.getId()) {
 			//Add
 			case R.id.AddButton:
+				Long parent = (Long) v.getTag(R.id.parent);
+				Long list_id = (Long) v.getTag(R.id.list_id);
 				Intent i = new Intent(this, TasksEditActivity.class);
 				i.putExtra(Tasks._ID, 0);
-				i.putExtra(Tasks.LIST_ID, mListIds[mCurrentList]);
+				i.putExtra(Tasks.LIST_ID, list_id == null ? mListIds[mCurrentList] : list_id);
+				i.putExtra(Tasks.PARENT, parent == null ? 0 : parent);
 				startActivityForResult(i, ACTION_ADD);
 				break;
 			//Reload
@@ -151,9 +151,17 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 					}
 				}
 				break;
+			//Checkbox
+			case R.id.completedCheckbox:
+				Long id = (Long) v.getTag(R.id.id);
+				ContentValues values = new ContentValues();
+				values.put(Tasks.COMPLETED, ((CheckBox) v).isChecked());
+				getContentResolver().update(ContentUris.withAppendedId(Tasks.CONTENT_URI, id), values, null, null);
+				break;
 			//Title
 			case R.id.TopBarTitle:
 				finish();
+				break;
 		}
 	}
 

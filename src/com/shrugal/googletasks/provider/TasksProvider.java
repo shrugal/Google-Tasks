@@ -1,6 +1,8 @@
 package com.shrugal.googletasks.provider;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import android.content.ContentProvider;
 import android.content.ContentUris;
@@ -13,6 +15,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.util.Log;
 
 public class TasksProvider extends ContentProvider {
 	
@@ -23,6 +26,11 @@ public class TasksProvider extends ContentProvider {
 	private static final int LIST_ID = 1;
 	private static final int TASKS = 2;
 	private static final int TASK_ID = 3;
+	
+	//Other finals
+	private static final String[] STRUCTURE_PROJECTION = new String[] {Tasks._ID, Tasks.LIST_ID, Tasks.PARENT, Tasks.LEFT, Tasks.RIGHT};
+	private static final String ALIAS_REGEX = "("+ TextUtils.join("|", Tasks.KEYS) +")";
+	private static final String TAG = "Google Tasks";
 	
 	/* Members */
 	private DatabaseHelper mDb;
@@ -36,6 +44,14 @@ public class TasksProvider extends ContentProvider {
 	@Override
 	public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,	String order) {
 		SQLiteQueryBuilder builder = new SQLiteQueryBuilder();
+		int rankIndex = -1, childsIndex = -1;
+		String groupBy = null;
+		
+		if(projection != null) {
+			List<String> projectionList =  Arrays.asList(projection);
+			rankIndex = projectionList.indexOf(Tasks.RANK);
+			childsIndex = projectionList.indexOf(Tasks.CHILDS);
+		}
 		
 		//Table, selection and order
 		switch(sUriMatcher.match(uri)) {
@@ -46,18 +62,80 @@ public class TasksProvider extends ContentProvider {
 				order = TextUtils.isEmpty(order) ? Lists.DEFAULT_ORDER : order +", "+ Lists.DEFAULT_ORDER;
 				break;
 			case TASK_ID:
-				builder.appendWhere(Tasks._ID +" = "+ uri.getPathSegments().get(1));
+				builder.appendWhere((rankIndex >= 0 || childsIndex >= 0 ? "a." : "")+ Tasks._ID +" = "+ uri.getPathSegments().get(1));
 			case TASKS:
-				builder.setTables(Tasks.TABLE_NAME);
-				order = TextUtils.isEmpty(order) ? Tasks.DEFAULT_ORDER : order +", "+ Tasks.DEFAULT_ORDER;
+				if(rankIndex >= 0 || childsIndex >= 0) {
+					//Append aliases
+					projection = appendAliasInArray("a", true, projection);
+					selection = appendAlias("a", false, selection);
+					order = TextUtils.isEmpty(order) ? appendAlias("a", false, Tasks.DEFAULT_ORDER) : appendAlias("a", false, order +", "+ Tasks.DEFAULT_ORDER);
+					groupBy = "a."+ Tasks._ID;
+					
+					//Create joins and alter projection
+					String tables = Tasks.TABLE_NAME +" AS a";
+					if(rankIndex >= 0) {
+						tables +=  " LEFT JOIN "+ Tasks.TABLE_NAME +" AS b ON (a."+ Tasks.LIST_ID +" = b."+ Tasks.LIST_ID +" AND a."+ Tasks.LEFT +" BETWEEN b."+ Tasks.LEFT +" AND b."+ Tasks.RIGHT +")";
+						projection[rankIndex] = "COUNT(DISTINCT b."+ Tasks._ID +")-1 AS "+ Tasks.RANK;
+					}
+					if(childsIndex >= 0) {
+						tables +=  " LEFT JOIN "+ Tasks.TABLE_NAME +" AS c ON (a."+ Tasks.LIST_ID +" = c."+ Tasks.LIST_ID +" AND c."+ Tasks.LEFT +" BETWEEN a."+ Tasks.LEFT +" AND a."+ Tasks.RIGHT +")";
+						projection[childsIndex] = "COUNT(DISTINCT c."+ Tasks._ID +")-1 AS "+ Tasks.CHILDS;
+					}
+					builder.setTables(tables);
+				} else {
+					builder.setTables(Tasks.TABLE_NAME);
+					order = TextUtils.isEmpty(order) ? Tasks.DEFAULT_ORDER : order +", "+ Tasks.DEFAULT_ORDER;
+				}
 				break;
 			default:
 				throw new IllegalArgumentException("Unknown URI "+ uri);
 		}
 		
 		//Create cursor
-		Cursor c = builder.query(mDb.getReadableDatabase(), projection, selection, selectionArgs, null, null, order);
+		Cursor c = builder.query(mDb.getReadableDatabase(), projection, selection, selectionArgs, groupBy, null, order);
 		c.setNotificationUri(getContext().getContentResolver(), uri);
+
+		//DEBUG
+		boolean debug = true;
+		if(debug) {
+			if(c.moveToFirst()) {
+				c.moveToPrevious();
+				String[] columns = c.getColumnNames();
+				int n = columns.length;
+				
+				final int BUFFER_LENGTH = 100;
+				final int SPACER = 2;
+				final int COLUMN_WIDTH = BUFFER_LENGTH / n;
+				
+				StringBuffer buffer = new StringBuffer();
+				String s;
+				
+				for(int i=0; i<n; i++) {
+					s = columns[i];
+					if(s.length() > COLUMN_WIDTH - SPACER)  s = s.substring(0, COLUMN_WIDTH - SPACER);
+					while(s.length() < COLUMN_WIDTH) s += " ";
+					buffer.append(s);
+				}
+				Log.i(TAG, buffer.toString());
+				buffer = new StringBuffer();
+				for(int i=0; i<BUFFER_LENGTH; i++) buffer.append("-");
+				Log.i(TAG, buffer.toString());
+				
+				while(c.moveToNext()) {
+					buffer = new StringBuffer();
+					for(int i=0; i<n; i++) {
+						s = c.getString(i);
+						if(s == null) s = "";
+						if(s.length() > COLUMN_WIDTH - SPACER)  s = s.substring(0, COLUMN_WIDTH - SPACER);
+						while(s.length() < COLUMN_WIDTH) s += " ";
+						buffer.append(s);
+					}
+					Log.i(TAG, buffer.toString());
+				}
+				c.moveToFirst();
+				c.moveToPrevious();
+			}
+		}
 		
 		return c;
 	}
@@ -147,6 +225,19 @@ public class TasksProvider extends ContentProvider {
 		}
 	}
 	
+	private String[] appendAliasInArray (String alias, boolean appendAs, String[] a) {
+		if(alias == null || a == null) return a;
+		for(int i=0; i<a.length; i++) a[i] = appendAlias(alias, appendAs, a[i]);
+		return a;
+	}
+	
+	private String appendAlias (String alias, boolean appendAs, String s) {
+		if(alias == null || s == null) return s;
+		//TODO: Truly interprete the where statement
+		s = s.replaceAll(ALIAS_REGEX, alias +".$1"+ (appendAs ? " AS $1" : ""));
+		return s;
+	}
+	
 		
 	/* ------------------------------------------------------------
 	 *                      Database Helper
@@ -158,28 +249,29 @@ public class TasksProvider extends ContentProvider {
 		private static final String DB_NAME = "googletasks";
 		
 		//Create Querys
-		private static final String LISTS_CREATE_QUERY = "CREATE TABLE " + Lists.TABLE_NAME + " (" +
-			Lists._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, " +
-			Lists.G_ID +" INTEGER, " +
-			Lists.NAME +" TEXT, " +
-			Lists.LAST_MODIFIED +" INTEGER, " +
-			Lists.LAST_MODIFIED_TYPE +" INTEGER, " +
-			Lists.DELETED +" INTEGER, " +
-			Lists.ORDER +" INTEGER" +
+		private static final String LISTS_CREATE_QUERY = "CREATE TABLE "+ Lists.TABLE_NAME +" ("+
+			Lists._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, "+
+			Lists.G_ID +" INTEGER, "+
+			Lists.NAME +" TEXT, "+
+			Lists.LAST_MODIFIED +" INTEGER, "+
+			Lists.LAST_MODIFIED_TYPE +" INTEGER, "+
+			Lists.DELETED +" INTEGER, "+
+			Lists.ORDER +" INTEGER"+
 		")";
-		private static final String TASKS_CREATE_QUERY = "CREATE TABLE " + Tasks.TABLE_NAME + " (" +
-			Tasks._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, " +
-			Tasks.G_ID +" INTEGER, " +
-			Tasks.LIST_ID +" INTEGER, " +
-			Tasks.PARENT +" INTEGER, " +
-			Tasks.NAME +" TEXT, " +
-			Tasks.NOTES +" TEXT, " +
-			Tasks.DATE +" INTEGER, " +
-			Tasks.LAST_MODIFIED +" INTEGER, " +
-			Tasks.LAST_MODIFIED_TYPE +" INTEGER, " +
-			Tasks.COMPLETED +" INTEGER, " +
-			Tasks.DELETED +" INTEGER, " +
-			Tasks.ORDER +" INTEGER" +
+		private static final String TASKS_CREATE_QUERY = "CREATE TABLE "+ Tasks.TABLE_NAME +" ("+
+			Tasks._ID +" INTEGER PRIMARY KEY AUTOINCREMENT, "+
+			Tasks.G_ID +" INTEGER, "+
+			Tasks.LIST_ID +" INTEGER, "+
+			Tasks.PARENT +" INTEGER, "+
+			Tasks.LEFT +" INTEGER, "+
+			Tasks.RIGHT +" INTEGER, "+
+			Tasks.NAME +" TEXT, "+
+			Tasks.NOTES +" TEXT, "+
+			Tasks.DATE +" INTEGER, "+
+			Tasks.LAST_MODIFIED +" INTEGER, "+
+			Tasks.LAST_MODIFIED_TYPE +" INTEGER, "+
+			Tasks.COMPLETED +" INTEGER, "+
+			Tasks.DELETED +" INTEGER"+
 		")";
 		
 		public DatabaseHelper(Context context) {
@@ -247,15 +339,15 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Lists._ID);
 
 			//Deleted
-			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
+			flag = values.getAsBoolean(Lists.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Lists.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
+			if(deleted != null) values.put(Lists.DELETED, deleted);
+			else values.remove(Lists.DELETED);
 			
 			//Last modified
 			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
@@ -265,6 +357,7 @@ public class TasksProvider extends ContentProvider {
 			}
 
 			SQLiteDatabase db = getWritableDatabase();
+			//TODO: Update child tasks if deleted changed => also last modified
 			return db.update(Lists.TABLE_NAME, values, Lists._ID+" = "+ id, null);
 		}
 		
@@ -285,15 +378,15 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Lists.NAME);
 
 			//Deleted
-			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
+			flag = values.getAsBoolean(Lists.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Lists.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
+			if(deleted != null) values.put(Lists.DELETED, deleted);
+			else values.remove(Lists.DELETED);
 			
 			//Last modified
 			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
@@ -303,6 +396,7 @@ public class TasksProvider extends ContentProvider {
 			}
 
 			SQLiteDatabase db = getWritableDatabase();
+			//TODO: Update child tasks if deleted changed => also last modified
 			return db.update(Lists.TABLE_NAME, values, selection, null);
 		}
 		
@@ -314,7 +408,7 @@ public class TasksProvider extends ContentProvider {
 		public int removeList (long id) {
 			SQLiteDatabase db = getWritableDatabase();
 			
-			removeTasks(Tasks.LIST_ID +" = "+ id);		
+			removeTasks(Tasks.LIST_ID +" = "+ id);
 			return db.delete(Lists.TABLE_NAME, Lists._ID +" = "+ id, null);
 		}
 		
@@ -361,22 +455,14 @@ public class TasksProvider extends ContentProvider {
 		private ArrayList<Long> getChildTasks (String selection, boolean include_self) {
 			ArrayList<Long> childs = new ArrayList<Long>();
 			SQLiteDatabase db = getReadableDatabase();
-			Long[] ids = new Long[0];
+			SQLiteQueryBuilder builder = new SQLiteQueryBuilder();
 			
-			if(!include_self) selection = Tasks.PARENT +" IN(SELECT "+ Tasks._ID +" FROM "+ Tasks.TABLE_NAME +" WHERE "+ selection +")";
+			builder.setTables(Tasks.TABLE_NAME +" as a, LEFT JOIN "+ Tasks.TABLE_NAME +" as b ON b."+ Tasks.LEFT +" BETWEEN a."+ Tasks.LEFT +" AND "+ Tasks.RIGHT);
+			builder.setDistinct(true);
+			Cursor c = builder.query(db, new String[] {"b."+ Tasks._ID}, selection, null, "b."+ Tasks._ID, null, "b."+ Tasks._ID);
 			
-			Cursor c = db.query(Tasks.TABLE_NAME, null, selection, null, null, null, null);
-			while(c.getCount() > 0) {
-				while(c.moveToNext()) {
-					ids = new Long[c.getCount()];
-					for(int i=0; c.moveToNext(); i++) {
-						ids[i] = c.getLong(c.getColumnIndex(Tasks._ID)); 
-						childs.add(ids[i]);
-					}
-				}
-				c.close();
-				c = db.query(Tasks.TABLE_NAME, null, Tasks.PARENT +" IN ("+ TextUtils.join(",", ids) +")", null, null, null, null);
-			}
+			while(c.moveToNext())  childs.add(c.getLong(0));
+			c.close();
 			
 			return childs;
 		}
@@ -389,25 +475,27 @@ public class TasksProvider extends ContentProvider {
 		public long addTask(ContentValues values) throws IllegalArgumentException {
 			SQLiteDatabase db = getWritableDatabase();
 			Long parent, previous, listId;
-			Integer completed, last_modified_type, order;
+			Integer completed, last_modified_type, left;
 			Boolean flag;
 			Cursor c;
 			
-			//Don't set id
+			//Don't set ...
 			values.remove(Tasks._ID);
-			
-			//List id
+			values.remove(Tasks.LEFT);
+			values.remove(Tasks.RIGHT);
+
+			/* ----------- List ID ----------- */
 			listId = values.getAsLong(Tasks.LIST_ID);
 			if(!db.query(Lists.TABLE_NAME, null, Lists._ID +" = "+ listId, null, null, null, null).moveToFirst()) {
 				throw new IllegalArgumentException("Unknown list "+ listId);
 			}
-			
-			//Last modified
+
+			/* ----------- Last modified ----------- */
 			if(values.getAsLong(Tasks.LAST_MODIFIED) == null) {
 				values.put(Tasks.LAST_MODIFIED, System.currentTimeMillis());
 			}
-			
-			//Last modified type
+
+			/* ----------- Last modified type ----------- */
 			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
 			if(last_modified_type == null) {
 				values.put(Tasks.LAST_MODIFIED_TYPE, Tasks.LAST_MODIFIED_TYPE_LOCAL);
@@ -415,53 +503,80 @@ public class TasksProvider extends ContentProvider {
 				throw new IllegalArgumentException("Unknown last modified type "+ last_modified_type);
 			}
 
-			//Completed
+			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.put(Tasks.COMPLETED, 0);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				else if(completed == null) completed = 0;
 			}
-			
-			//Deleted
+			values.put(Tasks.COMPLETED, completed);
+
+			/* ----------- Deleted ----------- */
 			values.put(Tasks.DELETED, 0);
-			
-			//Parent
+
+			/* ----------- Parent ----------- */
 			 //No parent => parent = 0
 			if((parent = values.getAsLong(Tasks.PARENT)) == null || parent == 0) parent = 0L;
 			 //check if parent exists
-			else if(!db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) {
+			else if(!db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) {
 				throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
 			}
 			values.put(Tasks.PARENT, parent);
-			
-			//Order
+
+			/* ----------- Left, Right ----------- */
 			if((previous = values.getAsLong(Tasks.PREVIOUS)) == null) {
 				//No previous => put at the end of the parent's list
-				c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
-				values.put(Tasks.ORDER, c.moveToFirst() ? c.getInt(0) + 1 : 0);
+				if(parent != 0) {
+					//Parent exists => take info from parent
+					c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent, null, null, null, null);
+					if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+					left = c.getInt(c.getColumnIndex(Tasks.RIGHT));
+				} else {
+					//Parent does not exist => take info from neighbors or use start value
+					c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.RIGHT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+					left = c.moveToFirst() ? c.getInt(0) + 1 : 0;
+				}
 			} else {
 				if(parent == previous) {
-					//parent = previous (possibly 0) => move to the top
-					order = 0;
-				} else {
-					//check if previous exists and get order
-					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
-					if(!c.moveToFirst()) {
-						throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+					//Put at the top of the list
+					if(parent != 0) {
+						//Parent exists => take info from parent
+						c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.LEFT)) + 1;
+					} else {
+						//Parent does not exist => take info from neighbors or use start value
+						c = db.query(Tasks.TABLE_NAME, new String[] {"MIN("+ Tasks.LEFT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+						left = c.moveToFirst() ? c.getInt(0) : 0;
 					}
-					order = c.getInt(c.getColumnIndex(Tasks.ORDER)) + 1;
+				} else {
+					//Check if previous exists and set left
+					c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+					if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+					left = c.getInt(c.getColumnIndex(Tasks.RIGHT)) + 1;
 				}
+			}
+			values.put(Tasks.LEFT, left);
+			values.put(Tasks.RIGHT, left+1);
+			ContentValues updateValues = new ContentValues();
+
+			/* ----------- Make room in DB ----------- */
+			//TODO: Figure out a way to to this with ContentValues
+			db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + 2 WHERE "+ Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);			
+			db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + 2 WHERE "+ Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
+			
+			/* ----------- Update completed in childs ----------- */
+			if(completed != null && completed == 0) {
+				updateValues.clear();
+				updateValues.put(Tasks.COMPLETED, completed);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
 				
-				//make room in db
-				ContentValues updateOrderValues = new ContentValues();
-				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
-				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" >= "+ order, null);
-				
-				values.put(Tasks.ORDER, order);
+				//Update parents
+				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ (left+1), null);
 			}
 			
 			return db.insert(Tasks.TABLE_NAME, null, values);
@@ -475,122 +590,182 @@ public class TasksProvider extends ContentProvider {
 		public int updateTask (long id, ContentValues values) throws IllegalArgumentException {	
 			SQLiteDatabase db = getWritableDatabase();
 			Long parent, previous, listId, oldListId, oldParent, oldPrevious;
-			Integer completed, deleted, last_modified_type, order, oldOrder;
+			Integer completed, deleted, last_modified_type, left, right, space, diff, oldLeft, oldRight;
 			Boolean flag;
 			Cursor c;
+			ContentValues updateValues = new ContentValues();;
 			
-			//Don't change id
+			//Don't change ...
 			values.remove(Tasks._ID);
-			
-			//Get existing task
-			c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ id, null, null, null, null);
+			values.remove(Tasks.LEFT);
+			values.remove(Tasks.RIGHT);
+
+			/* ----------- Existing task ----------- */
+			c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ id, null, null, null, null);
 			if(!c.moveToFirst()) return 0;
 			 //list id
 			oldListId = c.getLong(c.getColumnIndex(Tasks.LIST_ID));
 			 //parent
 			oldParent = c.getLong(c.getColumnIndex(Tasks.PARENT));
-			 //order
-			oldOrder = c.getInt(c.getColumnIndex(Tasks.ORDER));
+			 //left, right
+			oldLeft = c.getInt(c.getColumnIndex(Tasks.LEFT));
+			oldRight = c.getInt(c.getColumnIndex(Tasks.RIGHT));
 			 //previous
-			if(oldOrder == 0) {
-				oldPrevious = oldParent;
-			} else {
-				c = db.query(Tasks.TABLE_NAME, null, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" < "+ oldOrder, null, null, null, Tasks.ORDER +" DESC");
-				oldPrevious = c.moveToFirst() ? c.getLong(c.getColumnIndex(Tasks._ID)) : null;
-			}
+			c = db.query(Tasks.TABLE_NAME, null, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.RIGHT +" = "+ (oldLeft-1), null, null, null, null);
+			oldPrevious = c.moveToFirst() ? c.getLong(c.getColumnIndex(Tasks._ID)) : 0L;
 			c.close();
-			
-			//List id
+
+			/* ----------- List ID ----------- */
 			listId = values.getAsLong(Tasks.LIST_ID);
 			if(listId == null) listId = oldListId;
 			else if(!db.query(Lists.TABLE_NAME, null, Lists._ID +" = "+ listId, null, null, null, null).moveToFirst()) {
 				throw new IllegalArgumentException("Unknown list "+ listId);
 			}
 
-			//Completed
+			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.COMPLETED);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
 			}
+			if(completed != null) values.put(Tasks.COMPLETED, completed);
+			else values.remove(Tasks.COMPLETED);
 
-			//Deleted
+			/* ----------- Deleted ----------- */
 			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Tasks.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
-			
-			//Last modified
+			if(deleted != null) values.put(Tasks.DELETED, deleted);
+			else values.remove(Tasks.DELETED);
+
+			/* ----------- Last modified ----------- */
 			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
 			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
 				values.remove(Tasks.LAST_MODIFIED);
 				values.remove(Tasks.LAST_MODIFIED_TYPE);
 			}
-			
-			//Parent
-			 //No parent => Old parent or 0 if new list_id
+
+			/* ----------- Parent ----------- */
+			//No parent => Old parent or 0 if new list_id
 			if((parent = values.getAsLong(Tasks.PARENT)) == null) {
 				if(listId != oldListId) parent = 0L;
 				else parent = oldParent;
 				values.put(Tasks.PARENT, parent);
 			}
-			 //check if parent is 0
+			//check if parent is 0
 			else if(parent == 0) {
 				//nothing to do
 			}
-			 //check if parent is itself or one of its childs
+			//check if parent is itself or one of its childs
 			else if(getChildTasks(parent, true).contains(parent)) {
 				throw new IllegalArgumentException("Illegal parent "+ parent +" is the same as "+ id +" or one of its childs");
 			}
-			 //check if parent exists
-			else if(!db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) {
+			//check if parent exists
+			else if(!db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null).moveToFirst()) {
 				throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
 			}
-			
-			//Order
-			previous = values.getAsLong(Tasks.PREVIOUS);			
-			if(listId != oldListId || parent != oldParent || (previous != null && previous != oldPrevious)) {
+
+			/* ----------- Left, Right ----------- */
+			//Something changed?
+			if(((previous = values.getAsLong(Tasks.PREVIOUS)) != null && previous != oldPrevious) || listId != oldListId || parent != oldParent) {
 				if(previous == null) {
 					//No previous => put at the end of the parent's list
-					c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.ORDER +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
-					order = c.moveToFirst() ? c.getInt(0) + 1 : 0;
-					c.close();
-				} else if(previous == id) {
-					//thats not ok
-					throw new IllegalArgumentException("Illegal previous "+ previous+" is the same as "+ id);
-				} else if(parent == previous) {
-					//parent = previous (possibly 0) => move to the top
-					order = 0;
-				} else {
-					//check if previous exists and get order
-					c = db.query(Tasks.TABLE_NAME, null, Tasks._ID +" = "+ previous +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
-					if(!c.moveToFirst()) {
-						throw new IllegalArgumentException("Unknown previous "+ previous +" in list "+ listId);
+					if(parent != 0) {
+						//Parent exists => take info from parent
+						c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.RIGHT));
+					} else {
+						//Parent does not exist => take info from neighbors or use start value
+						c = db.query(Tasks.TABLE_NAME, new String[] {"MAX("+ Tasks.RIGHT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+						left = c.moveToFirst() ? c.getInt(0) + 1 : 0;
 					}
-					order = c.getInt(c.getColumnIndex(Tasks.ORDER)) + 1;
-					c.close();
+				} else {
+					if(parent == previous) {
+						//Put at the top of the list
+						if(parent != 0) {
+							//Parent exists => take info from parent
+							c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ parent, null, null, null, null);
+							if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown parent "+ parent +" in list "+ listId);
+							left = c.getInt(c.getColumnIndex(Tasks.LEFT)) + 1;
+						} else {
+							//Parent does not exist => take info from neighbors or use start value
+							c = db.query(Tasks.TABLE_NAME, new String[] {"MIN("+ Tasks.LEFT +")"}, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent, null, Tasks.LIST_ID, null, null);
+							left = c.moveToFirst() ? c.getInt(0) : 0;
+						}
+					} else if(previous == id) {
+						//thats not ok
+						throw new IllegalArgumentException("Illegal previous "+ previous+" is the same as "+ id);
+					} else {
+						//Check if previous exists and set left
+						c = db.query(Tasks.TABLE_NAME, STRUCTURE_PROJECTION, Tasks._ID +" = "+ previous +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.LIST_ID +" = "+ listId, null, null, null, null);
+						if(!c.moveToFirst()) throw new IllegalArgumentException("Unknown previous "+ previous +" under "+ parent +" in list "+ listId);
+						left = c.getInt(c.getColumnIndex(Tasks.RIGHT)) + 1;
+					}
 				}
-				values.put(Tasks.ORDER, order);
 				
-				ContentValues updateOrderValues = new ContentValues();
+				/* ----------- DB operations ----------- */
+				//TODO: Figure out a way to do this with ContentValues
+				updateValues.clear();
+				right = left + (oldRight - oldLeft);
+				space = (oldRight+1) - oldLeft;
+				diff = left - oldLeft;
 				
-				//Update source list
-				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" - 1");
-				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ oldListId +" AND "+ Tasks.PARENT +" = "+ oldParent +" AND "+ Tasks.ORDER +" > "+ oldOrder, null);
+				//Move subtree out of the source list
+				values.put(Tasks.LIST_ID, 0);
+				db.update(Tasks.TABLE_NAME, values, Tasks.LEFT +" BETWEEN "+ oldLeft +" AND "+ oldRight +" AND "+ Tasks.LIST_ID +" = "+ oldListId, null);
 				
-				//Update destination list
-				updateOrderValues.put(Tasks.ORDER, Tasks.ORDER +" + 1");
-				db.update(Tasks.TABLE_NAME, values, Tasks.LIST_ID +" = "+ listId +" AND "+ Tasks.PARENT +" = "+ parent +" AND "+ Tasks.ORDER +" > "+ order, null);
-			} else values.remove(Tasks.ORDER);
+				//Fix source list
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" - "+ space +" WHERE "+ Tasks.LEFT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId);
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" - "+ space +" WHERE "+ Tasks.RIGHT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId);
+								
+				//Make room in destination list
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + "+ space +" WHERE "+ Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + "+ space +" WHERE "+ Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
+								
+				//Move subtree to destination list and update left/right values
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + "+ diff +", "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + "+ diff +", "+ Tasks.LIST_ID +" = "+ listId +" WHERE "+ Tasks.LIST_ID +" = 0");
+			} else {
+				left = oldLeft;
+				right = oldRight;
+			}
+
+			/* ----------- Update completed in parents or childs ----------- */
+			if(completed != null) {
+				updateValues.clear();
+				updateValues.put(Tasks.COMPLETED, completed);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
+				
+				if(completed == 1)
+					//Update childs
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" BETWEEN "+ left +" AND "+ right, null);
+				else
+					//Update parents
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ right, null);
+			}
+
+			/* ----------- Update deleted in parents or childs ----------- */
+			if(deleted != null) {
+				//Update childs
+				updateValues.clear();
+				updateValues.put(Tasks.DELETED, deleted);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
+				
+				if(deleted == 1)
+					//Update childs
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" BETWEEN "+ left +" AND "+ right, null);
+				else
+					//Update parents
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ right, null);
+			}
 			
 			return db.update(Tasks.TABLE_NAME, values, Tasks._ID +" = "+ id, null);
 		}
@@ -610,37 +785,40 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Tasks.G_ID);
 			values.remove(Tasks.LIST_ID);
 			values.remove(Tasks.PARENT);
-			values.remove(Tasks.ORDER);
+			values.remove(Tasks.LEFT);
+			values.remove(Tasks.RIGHT);
 			values.remove(Tasks.NAME);
 
-			//Completed
+			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.COMPLETED);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
 			}
+			if(completed != null) values.put(Tasks.COMPLETED, completed);
+			else values.remove(Tasks.COMPLETED);
 
-			//Deleted
+			/* ----------- Deleted ----------- */
 			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Tasks.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
-			
-			//Last modified
+			if(deleted != null) values.put(Tasks.DELETED, deleted);
+			else values.remove(Tasks.DELETED);
+
+			/* ----------- Last modified ----------- */
 			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
 			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
 				values.remove(Tasks.LAST_MODIFIED);
 				values.remove(Tasks.LAST_MODIFIED_TYPE);
 			}
+			
+			//TODO: Update completed and deleted fields of parents and childs => also last modified
 
 			SQLiteDatabase db = getWritableDatabase();
 			return db.update(Tasks.TABLE_NAME, values, selection, null);
