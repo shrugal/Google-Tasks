@@ -15,6 +15,7 @@ public class TasksEditActivity extends EditActivity {
 	
 	/* Members */
 	private long mListId;
+	private long mParent;
 	
 	@Override
 	public void onCreate (Bundle savedInstanceState) {
@@ -22,14 +23,19 @@ public class TasksEditActivity extends EditActivity {
 		setContentView(R.layout.tasks_edit);
 		super.onCreate(savedInstanceState);
 		
-		//Init id and list id
+		//Init id, list id and parent
 		Bundle data = getIntent().getExtras();
 		mId = data.getLong(Tasks._ID, 0);
-		mListId = data.getLong(Tasks.LIST_ID, 0);
 		
 		if(mId > 0) {
 			mCursor = getContentResolver().query(ContentUris.withAppendedId(Tasks.CONTENT_URI, mId), null, null, null, null);
-			mCursor.moveToFirst();
+			if(!mCursor.moveToFirst()) finish();
+			mListId = mCursor.getLong(mCursor.getColumnIndex(Tasks.LIST_ID));
+			mParent = mCursor.getLong(mCursor.getColumnIndex(Tasks.PARENT));
+		} else {
+			mListId = data.getLong(Tasks.LIST_ID, 0);
+			mParent = data.getLong(Tasks.PARENT, 0);
+			if(mListId == 0 && mParent == 0) finish();
 		}
 		updateFields();
 	}
@@ -59,6 +65,7 @@ public class TasksEditActivity extends EditActivity {
 			r = getContentResolver().update(ContentUris.withAppendedId(Tasks.CONTENT_URI, mId), values, null, null);
 		} else {
 			values.put(Tasks.LIST_ID, mListId);
+			values.put(Tasks.PARENT, mParent);
 			Uri result = getContentResolver().insert(Tasks.CONTENT_URI, values);
 			r = Long.valueOf(result.getPathSegments().get(1));
 		}

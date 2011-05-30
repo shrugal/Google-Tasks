@@ -1,6 +1,8 @@
 package com.shrugal.googletasks.provider;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import android.content.ContentProvider;
 import android.content.ContentUris;
@@ -13,6 +15,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.util.Log;
 
 public class TasksProvider extends ContentProvider {
 	
@@ -26,6 +29,8 @@ public class TasksProvider extends ContentProvider {
 	
 	//Other finals
 	private static final String[] STRUCTURE_PROJECTION = new String[] {Tasks._ID, Tasks.LIST_ID, Tasks.PARENT, Tasks.LEFT, Tasks.RIGHT};
+	private static final String ALIAS_REGEX = "("+ TextUtils.join("|", Tasks.KEYS) +")";
+	private static final String TAG = "Google Tasks";
 	
 	/* Members */
 	private DatabaseHelper mDb;
@@ -39,6 +44,14 @@ public class TasksProvider extends ContentProvider {
 	@Override
 	public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,	String order) {
 		SQLiteQueryBuilder builder = new SQLiteQueryBuilder();
+		int rankIndex = -1, childsIndex = -1;
+		String groupBy = null;
+		
+		if(projection != null) {
+			List<String> projectionList =  Arrays.asList(projection);
+			rankIndex = projectionList.indexOf(Tasks.RANK);
+			childsIndex = projectionList.indexOf(Tasks.CHILDS);
+		}
 		
 		//Table, selection and order
 		switch(sUriMatcher.match(uri)) {
@@ -49,18 +62,80 @@ public class TasksProvider extends ContentProvider {
 				order = TextUtils.isEmpty(order) ? Lists.DEFAULT_ORDER : order +", "+ Lists.DEFAULT_ORDER;
 				break;
 			case TASK_ID:
-				builder.appendWhere(Tasks._ID +" = "+ uri.getPathSegments().get(1));
+				builder.appendWhere((rankIndex >= 0 || childsIndex >= 0 ? "a." : "")+ Tasks._ID +" = "+ uri.getPathSegments().get(1));
 			case TASKS:
-				builder.setTables(Tasks.TABLE_NAME);
-				order = TextUtils.isEmpty(order) ? Tasks.DEFAULT_ORDER : order +", "+ Tasks.DEFAULT_ORDER;
+				if(rankIndex >= 0 || childsIndex >= 0) {
+					//Append aliases
+					projection = appendAliasInArray("a", true, projection);
+					selection = appendAlias("a", false, selection);
+					order = TextUtils.isEmpty(order) ? appendAlias("a", false, Tasks.DEFAULT_ORDER) : appendAlias("a", false, order +", "+ Tasks.DEFAULT_ORDER);
+					groupBy = "a."+ Tasks._ID;
+					
+					//Create joins and alter projection
+					String tables = Tasks.TABLE_NAME +" AS a";
+					if(rankIndex >= 0) {
+						tables +=  " LEFT JOIN "+ Tasks.TABLE_NAME +" AS b ON (a."+ Tasks.LIST_ID +" = b."+ Tasks.LIST_ID +" AND a."+ Tasks.LEFT +" BETWEEN b."+ Tasks.LEFT +" AND b."+ Tasks.RIGHT +")";
+						projection[rankIndex] = "COUNT(DISTINCT b."+ Tasks._ID +")-1 AS "+ Tasks.RANK;
+					}
+					if(childsIndex >= 0) {
+						tables +=  " LEFT JOIN "+ Tasks.TABLE_NAME +" AS c ON (a."+ Tasks.LIST_ID +" = c."+ Tasks.LIST_ID +" AND c."+ Tasks.LEFT +" BETWEEN a."+ Tasks.LEFT +" AND a."+ Tasks.RIGHT +")";
+						projection[childsIndex] = "COUNT(DISTINCT c."+ Tasks._ID +")-1 AS "+ Tasks.CHILDS;
+					}
+					builder.setTables(tables);
+				} else {
+					builder.setTables(Tasks.TABLE_NAME);
+					order = TextUtils.isEmpty(order) ? Tasks.DEFAULT_ORDER : order +", "+ Tasks.DEFAULT_ORDER;
+				}
 				break;
 			default:
 				throw new IllegalArgumentException("Unknown URI "+ uri);
 		}
 		
 		//Create cursor
-		Cursor c = builder.query(mDb.getReadableDatabase(), projection, selection, selectionArgs, null, null, order);
+		Cursor c = builder.query(mDb.getReadableDatabase(), projection, selection, selectionArgs, groupBy, null, order);
 		c.setNotificationUri(getContext().getContentResolver(), uri);
+
+		//DEBUG
+		boolean debug = true;
+		if(debug) {
+			if(c.moveToFirst()) {
+				c.moveToPrevious();
+				String[] columns = c.getColumnNames();
+				int n = columns.length;
+				
+				final int BUFFER_LENGTH = 100;
+				final int SPACER = 2;
+				final int COLUMN_WIDTH = BUFFER_LENGTH / n;
+				
+				StringBuffer buffer = new StringBuffer();
+				String s;
+				
+				for(int i=0; i<n; i++) {
+					s = columns[i];
+					if(s.length() > COLUMN_WIDTH - SPACER)  s = s.substring(0, COLUMN_WIDTH - SPACER);
+					while(s.length() < COLUMN_WIDTH) s += " ";
+					buffer.append(s);
+				}
+				Log.i(TAG, buffer.toString());
+				buffer = new StringBuffer();
+				for(int i=0; i<BUFFER_LENGTH; i++) buffer.append("-");
+				Log.i(TAG, buffer.toString());
+				
+				while(c.moveToNext()) {
+					buffer = new StringBuffer();
+					for(int i=0; i<n; i++) {
+						s = c.getString(i);
+						if(s == null) s = "";
+						if(s.length() > COLUMN_WIDTH - SPACER)  s = s.substring(0, COLUMN_WIDTH - SPACER);
+						while(s.length() < COLUMN_WIDTH) s += " ";
+						buffer.append(s);
+					}
+					Log.i(TAG, buffer.toString());
+				}
+				c.moveToFirst();
+				c.moveToPrevious();
+			}
+		}
 		
 		return c;
 	}
@@ -148,6 +223,19 @@ public class TasksProvider extends ContentProvider {
 			default:
 				throw new IllegalArgumentException("Unknown URI "+ uri);
 		}
+	}
+	
+	private String[] appendAliasInArray (String alias, boolean appendAs, String[] a) {
+		if(alias == null || a == null) return a;
+		for(int i=0; i<a.length; i++) a[i] = appendAlias(alias, appendAs, a[i]);
+		return a;
+	}
+	
+	private String appendAlias (String alias, boolean appendAs, String s) {
+		if(alias == null || s == null) return s;
+		//TODO: Truly interprete the where statement
+		s = s.replaceAll(ALIAS_REGEX, alias +".$1"+ (appendAs ? " AS $1" : ""));
+		return s;
 	}
 	
 		
@@ -251,15 +339,15 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Lists._ID);
 
 			//Deleted
-			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
+			flag = values.getAsBoolean(Lists.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Lists.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
+			if(deleted != null) values.put(Lists.DELETED, deleted);
+			else values.remove(Lists.DELETED);
 			
 			//Last modified
 			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
@@ -290,15 +378,15 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Lists.NAME);
 
 			//Deleted
-			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
+			flag = values.getAsBoolean(Lists.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Lists.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
+			if(deleted != null) values.put(Lists.DELETED, deleted);
+			else values.remove(Lists.DELETED);
 			
 			//Last modified
 			last_modified_type = values.getAsInteger(Lists.LAST_MODIFIED_TYPE);
@@ -417,14 +505,14 @@ public class TasksProvider extends ContentProvider {
 
 			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.put(Tasks.COMPLETED, 0);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				else if(completed == null) completed = 0;
 			}
+			values.put(Tasks.COMPLETED, completed);
 
 			/* ----------- Deleted ----------- */
 			values.put(Tasks.DELETED, 0);
@@ -473,16 +561,23 @@ public class TasksProvider extends ContentProvider {
 			}
 			values.put(Tasks.LEFT, left);
 			values.put(Tasks.RIGHT, left+1);
+			ContentValues updateValues = new ContentValues();
 
 			/* ----------- Make room in DB ----------- */
-			ContentValues updateValues = new ContentValues();
-			updateValues.put(Tasks.LEFT, Tasks.LEFT +" + 2");
-			db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
-			updateValues.clear();
-			updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" + 2");
-			db.update(Tasks.TABLE_NAME, updateValues, Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
+			//TODO: Figure out a way to to this with ContentValues
+			db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + 2 WHERE "+ Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);			
+			db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + 2 WHERE "+ Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
 			
-			//TODO: Update completed in parent task => also last modified
+			/* ----------- Update completed in childs ----------- */
+			if(completed != null && completed == 0) {
+				updateValues.clear();
+				updateValues.put(Tasks.COMPLETED, completed);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
+				
+				//Update parents
+				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ (left+1), null);
+			}
 			
 			return db.insert(Tasks.TABLE_NAME, null, values);
 		}
@@ -495,9 +590,10 @@ public class TasksProvider extends ContentProvider {
 		public int updateTask (long id, ContentValues values) throws IllegalArgumentException {	
 			SQLiteDatabase db = getWritableDatabase();
 			Long parent, previous, listId, oldListId, oldParent, oldPrevious;
-			Integer completed, deleted, last_modified_type, left, space, diff, oldLeft, oldRight;
+			Integer completed, deleted, last_modified_type, left, right, space, diff, oldLeft, oldRight;
 			Boolean flag;
 			Cursor c;
+			ContentValues updateValues = new ContentValues();;
 			
 			//Don't change ...
 			values.remove(Tasks._ID);
@@ -528,25 +624,25 @@ public class TasksProvider extends ContentProvider {
 
 			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.COMPLETED);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
 			}
+			if(completed != null) values.put(Tasks.COMPLETED, completed);
+			else values.remove(Tasks.COMPLETED);
 
 			/* ----------- Deleted ----------- */
 			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Tasks.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
+			if(deleted != null) values.put(Tasks.DELETED, deleted);
+			else values.remove(Tasks.DELETED);
 
 			/* ----------- Last modified ----------- */
 			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
@@ -615,7 +711,9 @@ public class TasksProvider extends ContentProvider {
 				}
 				
 				/* ----------- DB operations ----------- */
-				ContentValues updateValues = new ContentValues();
+				//TODO: Figure out a way to do this with ContentValues
+				updateValues.clear();
+				right = left + (oldRight - oldLeft);
 				space = (oldRight+1) - oldLeft;
 				diff = left - oldLeft;
 				
@@ -624,31 +722,50 @@ public class TasksProvider extends ContentProvider {
 				db.update(Tasks.TABLE_NAME, values, Tasks.LEFT +" BETWEEN "+ oldLeft +" AND "+ oldRight +" AND "+ Tasks.LIST_ID +" = "+ oldListId, null);
 				
 				//Fix source list
-				values.clear();
-				updateValues.put(Tasks.LEFT, Tasks.LEFT +" - "+ space);
-				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId, null);
-				updateValues.clear();
-				updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" - "+ space);
-				db.update(Tasks.TABLE_NAME, updateValues, Tasks.RIGHT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId, null);
-				
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" - "+ space +" WHERE "+ Tasks.LEFT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId);
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" - "+ space +" WHERE "+ Tasks.RIGHT +" > "+ oldLeft +" AND "+ Tasks.LIST_ID +" = "+ oldListId);
+								
 				//Make room in destination list
-				updateValues.clear();
-				updateValues.put(Tasks.LEFT, Tasks.LEFT +" + "+ space);
-				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
-				updateValues.clear();
-				updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" + "+ space);
-				db.update(Tasks.TABLE_NAME, updateValues, Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId, null);
-				
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + "+ space +" WHERE "+ Tasks.LEFT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + "+ space +" WHERE "+ Tasks.RIGHT +" >= "+ left +" AND "+ Tasks.LIST_ID +" = "+ listId);
+								
 				//Move subtree to destination list and update left/right values
-				updateValues.clear();
-				updateValues.put(Tasks.LEFT, Tasks.LEFT +" + ("+ diff +")");
-				updateValues.put(Tasks.RIGHT, Tasks.RIGHT +" + ("+ diff +")");
-				updateValues.put(Tasks.LIST_ID, listId);
-				db.update(Tasks.TABLE_NAME, updateValues, Tasks.LIST_ID +" = 0", null);
+				db.execSQL("UPDATE "+ Tasks.TABLE_NAME +" SET "+ Tasks.LEFT +" = "+ Tasks.LEFT +" + "+ diff +", "+ Tasks.RIGHT +" = "+ Tasks.RIGHT +" + "+ diff +", "+ Tasks.LIST_ID +" = "+ listId +" WHERE "+ Tasks.LIST_ID +" = 0");
+			} else {
+				left = oldLeft;
+				right = oldRight;
 			}
-			
-			//TODO: Update completed fields of old parent, new parent, childs => also last modified
-			//TODO: Update deleted field of childs => also last modified
+
+			/* ----------- Update completed in parents or childs ----------- */
+			if(completed != null) {
+				updateValues.clear();
+				updateValues.put(Tasks.COMPLETED, completed);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
+				
+				if(completed == 1)
+					//Update childs
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" BETWEEN "+ left +" AND "+ right, null);
+				else
+					//Update parents
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ right, null);
+			}
+
+			/* ----------- Update deleted in parents or childs ----------- */
+			if(deleted != null) {
+				//Update childs
+				updateValues.clear();
+				updateValues.put(Tasks.DELETED, deleted);
+				updateValues.put(Tasks.LAST_MODIFIED, values.getAsInteger(Tasks.LAST_MODIFIED));
+				updateValues.put(Tasks.LAST_MODIFIED_TYPE, values.getAsInteger(Tasks.LAST_MODIFIED_TYPE));
+				
+				if(deleted == 1)
+					//Update childs
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" BETWEEN "+ left +" AND "+ right, null);
+				else
+					//Update parents
+					db.update(Tasks.TABLE_NAME, updateValues, Tasks.LEFT +" < "+ left +" AND "+ Tasks.RIGHT +" > "+ right, null);
+			}
 			
 			return db.update(Tasks.TABLE_NAME, values, Tasks._ID +" = "+ id, null);
 		}
@@ -672,29 +789,29 @@ public class TasksProvider extends ContentProvider {
 			values.remove(Tasks.RIGHT);
 			values.remove(Tasks.NAME);
 
-			//Completed
+			/* ----------- Completed ----------- */
 			flag = values.getAsBoolean(Tasks.COMPLETED);
-			completed = values.getAsInteger(Tasks.COMPLETED);
 			if(flag != null) {
-				values.put(Tasks.COMPLETED, flag ? 1 : 0);
-			} else if(completed != null) {
-				if (completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
+				completed = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.COMPLETED);
+				completed = values.getAsInteger(Tasks.COMPLETED);
+				if (completed != null && completed != 0 && completed != 1) throw new IllegalArgumentException("Illegal value for completed "+ completed);
 			}
+			if(completed != null) values.put(Tasks.COMPLETED, completed);
+			else values.remove(Tasks.COMPLETED);
 
-			//Deleted
+			/* ----------- Deleted ----------- */
 			flag = values.getAsBoolean(Tasks.DELETED);
-			deleted = values.getAsInteger(Tasks.DELETED);
 			if(flag != null) {
-				values.put(Tasks.DELETED, flag ? 1 : 0);
-			} else if(deleted != null) {
-				if(deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
+				deleted = flag ? 1 : 0;
 			} else {
-				values.remove(Tasks.DELETED);
+				deleted = values.getAsInteger(Tasks.DELETED);
+				if(deleted != null && deleted != 0 && deleted != 1) throw new IllegalArgumentException("Illegal value for deleted "+ deleted);
 			}
-			
-			//Last modified
+			if(deleted != null) values.put(Tasks.DELETED, deleted);
+			else values.remove(Tasks.DELETED);
+
+			/* ----------- Last modified ----------- */
 			last_modified_type = values.getAsInteger(Tasks.LAST_MODIFIED_TYPE);
 			if(last_modified_type != null && last_modified_type != Tasks.LAST_MODIFIED_TYPE_LOCAL && last_modified_type != Tasks.LAST_MODIFIED_TYPE_SERVER) {
 				values.remove(Tasks.LAST_MODIFIED);

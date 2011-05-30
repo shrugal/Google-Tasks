@@ -24,15 +24,18 @@ public final class Tasks implements BaseColumns {
 	public static final String LAST_MODIFIED_TYPE = "last_modified_local";
 	public static final String COMPLETED = "completed";
 	public static final String DELETED = "deleted";
-	public static final String ORDER = "sort";
 	public static final String LEFT = "lft";
 	public static final String RIGHT = "rgt";
+	
+	public static final String[] KEYS = {_ID, G_ID, LIST_ID, PARENT, NAME, NOTES, DATE, LAST_MODIFIED_TYPE, LAST_MODIFIED, COMPLETED, DELETED, LEFT, RIGHT};
 
 	//Defaults
-	public static final String DEFAULT_ORDER = LIST_ID +" ASC, "+ NAME +" ASC";
+	public static final String DEFAULT_ORDER = LIST_ID +" ASC, "+ LEFT +" ASC";
 	public static final int LAST_MODIFIED_TYPE_LOCAL = 0;
 	public static final int LAST_MODIFIED_TYPE_SERVER = 1;
 	
 	//Other
 	public static final String PREVIOUS = "previous";
+	public static final String RANK = "rank";
+	public static final String CHILDS = "childs";
 }
