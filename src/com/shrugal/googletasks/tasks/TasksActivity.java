@@ -6,30 +6,38 @@ import android.app.AlertDialog;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
-import android.net.Uri;
+import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
 import android.os.Bundle;
+import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentTransaction;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
+import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnCreateContextMenuListener;
+import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.CheckBox;
-import android.widget.CompoundButton;
-import android.widget.CompoundButton.OnCheckedChangeListener;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -48,6 +56,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	/* Finals */
 	static final int ACTION_ADD = 0;
 	static final int ACTION_EDIT = 1;
+	static final int DRAG_SCROLL_ZONE = 16;
+	static final int DRAG_SCROLL_TIMEOUT = 1000;
 	
 	/* Members */
 	private long[] mListIds;
@@ -56,8 +66,21 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	private TextView mTitleField;
 	public WorkspaceView mScrollView;
 	private LinearLayout mScrollViewContainer;
+	private TasksFragment[] mFragments;
+	private FragmentManager mFragmentManager;
 	
-	/** Called when the activity is first created. */
+	/* Drag and drop */
+	private boolean mDragging = false;
+	private boolean mDragCancelDispatched = false;
+	private boolean mDragAllowScrolling = false;
+	private ImageView mDragImage;
+	private View mDragHoverView, mDragView, mDragDivider;
+	private long mDragId = 0;
+	private float mDragX, mDragY, mDragOffsetX, mDragOffsetY;
+	private MotionEvent mDragEvent;
+	private PendingCheckForScroll mPendingCheckForScroll;
+	private Handler mHandler = new Handler();
+	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -84,7 +107,7 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 			int count = c.getCount();
 			mListIds = new long[count];
 			mListNames = new String[count];
-			TasksFragment[] fragments = new TasksFragment[count];
+			mFragments = new TasksFragment[count];
 			
 			Bundle fragmentData;
 			for(int i=0; c.moveToNext(); i++) {
@@ -92,17 +115,18 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 				if(mListIds[i] == sendedListId) mCurrentList = i;
 				mListNames[i] = c.getString(c.getColumnIndex(Lists.NAME));
 				
-				fragments[i] = new TasksFragment();
+				mFragments[i] = new TasksFragment();
 				fragmentData = new Bundle();
 				fragmentData.putLong("list_id", mListIds[i]);
-				fragments[i].setArguments(fragmentData);
+				mFragments[i].setArguments(fragmentData);
 			}
 					
 			//Init fragments
-			if(fragments.length > 0) {
-				FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
-				for(int i=0; i<fragments.length; i++) {
-					transaction.add(R.id.ScrollViewContainer, fragments[i], mListIds[i]+"");
+			mFragmentManager = getSupportFragmentManager();
+			if(mFragments.length > 0) {
+				FragmentTransaction transaction = mFragmentManager.beginTransaction();
+				for(int i=0; i<mFragments.length; i++) {
+					transaction.add(R.id.ScrollViewContainer, mFragments[i], mListIds[i]+"");
 				}
 				transaction.commit();
 			}
@@ -111,6 +135,14 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 			mListIds = savedInstanceState.getLongArray("mListIds");
 			mListNames = savedInstanceState.getStringArray("mListNames");
 			mCurrentList = savedInstanceState.getInt("mCurrentList");
+			
+			//Restore fragments
+			mFragmentManager = getSupportFragmentManager();
+			mFragments = new TasksFragment[savedInstanceState.getInt("fragmentCount")];
+			
+			for(int i=0; savedInstanceState.containsKey("fragment"+ i) && i<mFragments.length; i++) {
+				mFragments[i] = (TasksFragment) mFragmentManager.getFragment(savedInstanceState, "fragment"+ i);
+			}
 		}
 		
 		//Set title
@@ -119,9 +151,16 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	
 	@Override
 	protected void onSaveInstanceState (Bundle outState) {
+		//Save variables
 		outState.putLongArray("mListIds", mListIds);
 		outState.putStringArray("mListNames", mListNames);
 		outState.putInt("mCurrentList", mCurrentList);
+		
+		//Save fragments
+		int i = 0;
+		for(; i<mFragments.length; i++)  mFragmentManager.putFragment(outState, "fragment"+ i, mFragments[i]);
+		outState.putInt("fragmentCount", mFragments.length);
+		
 		super.onSaveInstanceState(outState);
 	}
 
@@ -165,37 +204,37 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 		}
 	}
 
-    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+	protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
 		switch(requestCode) {
 			case ACTION_ADD:
 			case ACTION_EDIT:
 				Toast.makeText(this, resultCode == RESULT_OK ? "Saved" : "Cancled", Toast.LENGTH_SHORT).show();
 		}
 	}
-    
-    /* -------------------------------------------------
-     *                  Options Menu
-     * ------------------------------------------------- */
-    
-    public boolean onCreateOptionsMenu (Menu menu) {
-    	MenuInflater inflater = getMenuInflater();
-    	inflater.inflate(R.menu.main, menu);
-    	return true;
-    }
-    
-    public boolean onOptionsItemSelected (MenuItem item) {
-    	switch(item.getItemId()) {
-    		case R.id.SettingsMenuItem:
-    			startActivity(new Intent(this, PreferencesActivity.class));
-    			break;
-    	}
-    	return true;
-    }
+	
+	/* -------------------------------------------------
+	 *				  Options Menu
+	 * ------------------------------------------------- */
+	
+	public boolean onCreateOptionsMenu (Menu menu) {
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.main, menu);
+		return true;
+	}
+	
+	public boolean onOptionsItemSelected (MenuItem item) {
+		switch(item.getItemId()) {
+			case R.id.SettingsMenuItem:
+				startActivity(new Intent(this, PreferencesActivity.class));
+				break;
+		}
+		return true;
+	}
 
-    /* -------------------------------------------------
-     *                  Context Menu
-     * -------------------------------------------------*/
-    
+	/* -------------------------------------------------
+	 *				  Context Menu
+	 * -------------------------------------------------*/
+	
 	public void onCreateContextMenu(ContextMenu menu, View v, ContextMenuInfo menuInfo) {
 		super.onCreateContextMenu(menu, v, menuInfo);
 		MenuInflater inflater = getMenuInflater();
@@ -235,6 +274,302 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 		startActivityForResult(i, ACTION_EDIT);
 	}
 	
+	@Override
+	public boolean dispatchTouchEvent (MotionEvent ev) {
+		mDragX = ev.getX();
+		mDragY = ev.getY();
+		
+		if(mDragging && mDragImage != null) {
+			if(mDragEvent == null) {
+				mDragEvent = MotionEvent.obtain(ev);
+				mDragEvent.setAction(MotionEvent.ACTION_CANCEL);
+			}
+			boolean handled = onTouchEvent(ev);
+			if(!mDragCancelDispatched) {
+				mDragCancelDispatched = true;
+				ev.setAction(MotionEvent.ACTION_CANCEL);
+			}
+			if(handled) return true;			
+		}
+		
+		return super.dispatchTouchEvent(ev);
+	}
+
+	@Override
+	public boolean onTouchEvent (MotionEvent ev) {
+		if(mDragging && mDragImage != null) {
+			switch(ev.getAction()) {
+				case MotionEvent.ACTION_MOVE:
+					drag();
+					break;
+				case MotionEvent.ACTION_UP:
+					drop();
+				case MotionEvent.ACTION_CANCEL:
+					stopDrag();
+					break;
+			}
+			return true;
+		}
+		return false;
+	}
+	
+	public void startDrag (View item, long id) {
+		if(item == null) return;
+		if(mDragging || mDragImage != null) stopDrag();
+		
+		mDragOffsetX = mDragX;
+		mDragOffsetY = item.getHeight()/2;
+		
+		//Create bitmap from item
+		item.setDrawingCacheEnabled(true);
+		Bitmap bitmap = Bitmap.createBitmap(item.getDrawingCache());
+		
+		WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
+		layoutParams.gravity = Gravity.TOP;
+		layoutParams.x = (int) (mDragX - mDragOffsetX);
+		layoutParams.y = (int) (mDragY - mDragOffsetY);
+
+		layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+		layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT;
+		layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+				| WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+				| WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+				| WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+				| WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+		layoutParams.format = PixelFormat.TRANSLUCENT;
+		layoutParams.windowAnimations = 0;
+		
+		ImageView v = new ImageView(this);
+		v.setImageBitmap(bitmap);	  
+
+		WindowManager mWindowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+		mWindowManager.addView(v, layoutParams);
+		
+		//Drag stuff
+		mDragId = id;
+		mDragView = item;
+		mDragImage = v;
+		mDragging = true;
+		mDragAllowScrolling = false;
+		mDragCancelDispatched = false;
+		if(mDragEvent != null) {
+			mDragEvent.setLocation(mDragX, mDragY);
+			super.dispatchTouchEvent(mDragEvent);
+		}
+		if(mPendingCheckForScroll != null) mHandler.removeCallbacks(mPendingCheckForScroll);
+		mPendingCheckForScroll = null;
+		//item.setVisibility(View.INVISIBLE);
+	}
+	
+	/**
+	 * Move the dragged item
+	 * @param x
+	 * @param y
+	 */
+	private void drag() {
+		if (mDragging && mDragImage != null) {
+			//Move drag view
+			WindowManager.LayoutParams layoutParams = (WindowManager.LayoutParams) mDragImage.getLayoutParams();
+			layoutParams.x = (int) (mDragX - mDragOffsetX);
+			layoutParams.y = (int) (mDragY - mDragOffsetY);
+			WindowManager mWindowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+			mWindowManager.updateViewLayout(mDragImage, layoutParams);
+			
+			//Check for horizontal scrolling
+			int width = mScrollView.getWidth();
+			int zone = mScrollView.getWidth()/DRAG_SCROLL_ZONE;
+			boolean inZone = mDragX < zone || mDragX > width - zone;			
+			if(mDragAllowScrolling) {
+				if(inZone && mPendingCheckForScroll == null) {
+					mPendingCheckForScroll = new PendingCheckForScroll();
+					mHandler.post(mPendingCheckForScroll);
+				} else if(!inZone && mPendingCheckForScroll != null) {
+					mHandler.removeCallbacks(mPendingCheckForScroll);
+					mPendingCheckForScroll = null;
+				}
+			} else if(!inZone) mDragAllowScrolling = true;
+			
+			//Check for vertial scrolling
+			ListView list = mFragments[mCurrentList].getListView();
+			int[] listOffset = new int[2];
+			list.getLocationOnScreen(listOffset);
+			int listY = (int) (mDragY - listOffset[1]);
+			
+			//Hover item
+			int position;
+			boolean hoverItem = false;
+			if((position = list.pointToPosition(0, listY)) != ListView.INVALID_POSITION) {
+				View divider, child = (View) list.getChildAt(position - list.getFirstVisiblePosition());
+				if(child != null) {
+					hoverItem = true;
+					double childZone = ((double) (listY - child.getTop())) / child.getHeight();
+					
+					if(childZone < 0.25) {
+						//Top
+						if(mDragHoverView != null) {
+							mDragHoverView.setSelected(false);
+							mDragHoverView = null;
+						}
+						divider = ((ViewGroup) child).findViewById(R.id.dividerTop);
+						if(divider != mDragDivider) {
+							if(mDragDivider != null) mDragDivider.setSelected(false);
+							mDragDivider = divider;
+							divider.setSelected(true);
+						}
+					} else if (childZone < 0.75) {
+						//Middle
+						if(child != mDragHoverView) {
+							if(mDragHoverView != null) mDragHoverView.setSelected(false);
+							mDragHoverView = child;
+							child.setSelected(true);
+						}
+						if(mDragDivider != null) {
+							mDragDivider.setSelected(false);
+							mDragDivider = null;
+						}
+					} else {
+						//Bottom
+						if(mDragHoverView != null) {
+							mDragHoverView.setSelected(false);
+							mDragHoverView = null;
+						}
+						divider = ((ViewGroup) child).findViewById(R.id.dividerBottom);
+						if(divider != mDragDivider) {
+							if(mDragDivider != null) mDragDivider.setSelected(false);
+							mDragDivider = divider;
+							divider.setSelected(true);
+						}
+					}
+				}
+			}
+			
+			if(!hoverItem){
+				if(mDragHoverView != null) {
+					mDragHoverView.setSelected(false);
+					mDragHoverView = null;
+				}
+				if(mDragDivider != null) {
+					mDragDivider.setSelected(false);
+					mDragDivider = null;
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Stop a drag
+	 * @param itemIndex
+	 */
+	private void stopDrag () {
+		if (mDragging && mDragImage != null) {
+			mDragImage.setVisibility(View.GONE);
+			WindowManager windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+			windowManager.removeView(mDragImage);
+			mDragImage.setImageDrawable(null);
+		}
+		mDragId = 0;
+		mDragImage = null;
+		mDragging = false;
+		mDragAllowScrolling = false;
+		if(mPendingCheckForScroll != null) mHandler.removeCallbacks(mPendingCheckForScroll);
+		mPendingCheckForScroll = null;
+		mDragCancelDispatched = false;
+		if(mDragView != null) mDragView.setVisibility(View.VISIBLE);
+		mDragView = null;
+		if(mDragHoverView != null) mDragHoverView.setSelected(false);
+		mDragHoverView = null;
+		if(mDragDivider != null) mDragDivider.setSelected(false);
+		mDragDivider = null;
+	}
+	
+	private void drop () {
+		if(mDragId == 0) return;
+		int[] viewOffset = new int[2];
+		ContentValues values = new ContentValues();
+		
+		//On title field?
+		mTitleField.getLocationOnScreen(viewOffset);
+		if(mDragX > viewOffset[0] && mDragX < viewOffset[0] + mTitleField.getWidth() &&
+		   mDragY > viewOffset[1] && mDragY < viewOffset[1] + mTitleField.getHeight()) {
+			values.put(Tasks.LIST_ID, mListIds[mCurrentList]);
+			
+			try {
+				getContentResolver().update(ContentUris.withAppendedId(Tasks.CONTENT_URI, mDragId), values, null, null);
+			} catch (IllegalArgumentException e) {
+				Log.i(TAG, e.getMessage());
+				e.printStackTrace();
+			}
+			return;
+		}
+		
+		//On list?
+		ListView list = mFragments[mCurrentList].getListView();
+		list.getLocationOnScreen(viewOffset);
+
+		if(mDragX > viewOffset[0] && mDragX < viewOffset[0] + list.getWidth() &&
+		   mDragY > viewOffset[1] && mDragY < viewOffset[1] + list.getHeight()) {
+			
+			int position, listY = (int) (mDragY - viewOffset[1]);			
+			values.put(Tasks.LIST_ID, mListIds[mCurrentList]);
+			
+			Long expandId = null;
+			if((position = list.pointToPosition(0, listY)) != ListView.INVALID_POSITION) {
+				View child = list.getChildAt(position - list.getFirstVisiblePosition());
+				double childZone = ((double) (listY - child.getTop())) / child.getHeight();
+				
+				if(childZone < 0.25) {
+					//Top
+					values.put(Tasks.PARENT, (Long) child.getTag(R.id.parent));
+					values.put(Tasks.FOLLOWER, (Long) child.getTag(R.id.id));
+				} else if (childZone < 0.75) {
+					//Middle
+					expandId = (Long) child.getTag(R.id.id);
+					values.put(Tasks.PARENT, expandId);
+				} else {
+					//Bottom
+					values.put(Tasks.PARENT, (Long) child.getTag(R.id.parent));
+					values.put(Tasks.PREVIOUS, (Long) child.getTag(R.id.id));
+				}
+			}
+			try {
+				getContentResolver().update(ContentUris.withAppendedId(Tasks.CONTENT_URI, mDragId), values, null, null);
+				if(expandId != null) ((TasksAdapter) list.getAdapter()).expandItem(expandId);
+			} catch (IllegalArgumentException e) {
+				Log.i(TAG, e.getMessage());
+				e.printStackTrace();
+			}
+			return;
+		}
+	}
+	
+	/**
+	 * 
+	 * @author Niggo
+	 *
+	 */
+	private class PendingCheckForScroll implements Runnable {
+		@Override
+		public void run() {
+			int width = mScrollView.getWidth();
+			int zone = mScrollView.getWidth()/DRAG_SCROLL_ZONE;
+			
+			if(mPendingCheckForScroll == this) {
+				if(mDragX < zone) {
+					//Left zone
+					if(mCurrentList > 0) mScrollView.smoothScrollToWorkspace(mCurrentList-1);
+				} else if (mDragX > width - zone) {
+					//Right zone
+					if(mCurrentList < mListIds.length-1) mScrollView.smoothScrollToWorkspace(mCurrentList+1);
+				} else {
+					mHandler.removeCallbacks(this);
+					mPendingCheckForScroll = null;
+					return;
+				}
+				mHandler.postDelayed(this, DRAG_SCROLL_TIMEOUT);
+			}
+		}
+	}
+	
 	/**
 	 * Dialog on click listener
 	 * @author Niggo
@@ -269,7 +604,7 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	}
 
 	/* ---------------------------------------------------
-	 *                  Workspace stuff
+	 *				  Workspace stuff
 	 * --------------------------------------------------- */
 	
 	@Override
@@ -277,6 +612,7 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 		if(index != -1) {
 			mCurrentList = Math.max(0, Math.min(mListIds.length-1, index));
 			mTitleField.setText(mListNames[mCurrentList]);
+			//TODO: enable and disable fragments
 		}
 	}
 	

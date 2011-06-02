@@ -8,7 +8,7 @@ import java.util.Map;
 
 import android.content.Context;
 import android.database.Cursor;
-import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
@@ -39,10 +39,11 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 	 * @param layout
 	 * @param cursor
 	 */
-	public TasksAdapter(Context context, int layout, Cursor cursor, TasksFragment fragment) {
+	public TasksAdapter(Context context, int layout, Cursor cursor, long[] expanded, TasksFragment fragment) {
 		super(context, layout, cursor);
 		mFragment = fragment;
 		mListId = fragment.getListId();
+		if(expanded != null) for(long id : expanded) mExpanded.add(id);
 		init(context, cursor, true);
 	}
 	
@@ -77,7 +78,14 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 	}
 	
 	@Override
+	public long getItemId(int position) {
+		if(position > getCount()-1) return 0;
+		return super.getItemId(mItems.get(position));
+	}
+	
+	@Override
 	public void notifyDataSetChanged () {
+		mItems.clear();
 		addItems(getCursor(), 0L);
 		super.notifyDataSetChanged();
 	}
@@ -86,6 +94,13 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 	public void notifyDataSetInvalidated() {
 		mItems.clear();
 		super.notifyDataSetInvalidated();
+	}
+	
+	public long[] getExpanded () {
+		long[] expanded = new long[mExpanded.size()];
+		Iterator<Long> iter = mExpanded.iterator();
+		for(int i=0; iter.hasNext(); i++) expanded[i] = iter.next();
+		return expanded;
 	}
 	
 	/**
@@ -97,16 +112,24 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 		if(!mItems.containsKey(id)) return false;
 		boolean expand;
 		
-		if(expand = !mExpanded.contains(id)) {
-			addItems(getCursor(), id);
-			mExpanded.add(id);
-		} else {
-			removeItems(getCursor(), id);
-			mExpanded.remove(id);
-		}
+		if(expand = !mExpanded.contains(id)) expandItem(id);
+		else collapseItem(id);
+		
+		return expand;
+	}
+	
+	public void expandItem (Long id) {
+		addItems(getCursor(), id);
+		mExpanded.add(id);
 		
 		super.notifyDataSetChanged();
-		return expand;
+	}
+	
+	public void collapseItem (Long id) {
+		removeItems(getCursor(), id);
+		mExpanded.remove(id);
+		
+		super.notifyDataSetChanged();
 	}
 	
 	private int addItems (Cursor c, long parent) {
@@ -145,6 +168,8 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 				if(childRank == startRank) {
 					mItems.add(++position, childId, c.getPosition());
 					if(mExpanded.contains(childId)) position += addItems(c, childId, false);
+				} else if(childRank > startRank) {
+					mItems.remove(childId);
 				} else if(childRank < startRank) break;
 			}
 			if(preservePosition) c.moveToPosition(oldPos);
@@ -182,7 +207,6 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 				mItems.remove(c.getLong(idIndex));
 			}
 			c.moveToPosition(oldPos);
-			Log.i(TAG, "---------");
 		}
 	}
 	
@@ -205,12 +229,18 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 	*/
 
 	@Override
-	public void bindView(View view, final Context context, Cursor c) {
+	public void bindView(View view, Context context, Cursor c) {
 		long id = c.getLong(c.getColumnIndex(Tasks._ID));
 		String name = c.getString(c.getColumnIndex(Tasks.NAME));
 		int rank = c.getInt(c.getColumnIndex(Tasks.RANK));
 		int childs = c.getInt(c.getColumnIndex(Tasks.CHILDS));
 		boolean completed = c.getInt(c.getColumnIndex(Tasks.COMPLETED)) == 1;
+		
+		view.setTag(R.id.id, id);
+		view.setTag(R.id.parent, c.getLong(c.getColumnIndex(Tasks.PARENT)));
+		if(view instanceof ViewGroup) {
+			((ViewGroup) view).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+		}
 		
 		//Indent
 		View indent = view.findViewById(R.id.indent);
@@ -219,8 +249,10 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 		//Checkbox
 		CheckBox checkbox = (CheckBox) view.findViewById(R.id.completedCheckbox);
 		checkbox.setTag(R.id.id, id);
+		checkbox.setTag(R.id.parent, view);
 		if(checkbox.isChecked() != completed) checkbox.setChecked(completed);
 		checkbox.setOnClickListener((TasksActivity) mFragment.getActivity());
+		checkbox.setOnLongClickListener((TasksFragment) mFragment);
 		
 		//Name
 		TextView text = (TextView) view.findViewById(R.id.name);
@@ -248,7 +280,6 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 	public void onClick(View v) {
 		switch(v.getId()) {
 			case R.id.ExpanderButton:
-				Log.i(TAG, "click!");
 				toggleItem((Long) v.getTag(R.id.id));
 		}
 	}
@@ -339,7 +370,6 @@ public class TasksAdapter extends ResourceCursorAdapter implements OnClickListen
 		public void clear () {
 			mList.clear();
 			mMap.clear();
-			Log.i(TAG, "HashList.clear()");
 		}
 		
 		/**

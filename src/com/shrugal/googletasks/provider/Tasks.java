@@ -36,6 +36,7 @@ public final class Tasks implements BaseColumns {
 	
 	//Other
 	public static final String PREVIOUS = "previous";
+	public static final String FOLLOWER = "follower";
 	public static final String RANK = "rank";
 	public static final String CHILDS = "childs";
 }
