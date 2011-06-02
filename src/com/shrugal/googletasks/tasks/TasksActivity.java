@@ -57,7 +57,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	static final int ACTION_ADD = 0;
 	static final int ACTION_EDIT = 1;
 	static final int DRAG_SCROLL_ZONE = 16;
-	static final int DRAG_SCROLL_TIMEOUT = 1000;
+	static final int DRAG_SCROLL_TIMEOUT_HORIZONTAL = 1000;
+	static final int DRAG_SCROLL_TIMEOUT_VERTICAL = 20;
 	
 	/* Members */
 	private long[] mListIds;
@@ -78,7 +79,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	private long mDragId = 0;
 	private float mDragX, mDragY, mDragOffsetX, mDragOffsetY;
 	private MotionEvent mDragEvent;
-	private PendingCheckForScroll mPendingCheckForScroll;
+	private PendingCheckForHorizontalScroll mPendingCheckForHorizontalScroll;
+	private PendingCheckForVerticalScroll mPendingCheckForVerticalScroll;
 	private Handler mHandler = new Handler();
 	
 	@Override
@@ -356,8 +358,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 			mDragEvent.setLocation(mDragX, mDragY);
 			super.dispatchTouchEvent(mDragEvent);
 		}
-		if(mPendingCheckForScroll != null) mHandler.removeCallbacks(mPendingCheckForScroll);
-		mPendingCheckForScroll = null;
+		if(mPendingCheckForHorizontalScroll != null) mHandler.removeCallbacks(mPendingCheckForHorizontalScroll);
+		mPendingCheckForHorizontalScroll = null;
 		//item.setVisibility(View.INVISIBLE);
 	}
 	
@@ -377,15 +379,15 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 			
 			//Check for horizontal scrolling
 			int width = mScrollView.getWidth();
-			int zone = mScrollView.getWidth()/DRAG_SCROLL_ZONE;
+			int zone = width/DRAG_SCROLL_ZONE;
 			boolean inZone = mDragX < zone || mDragX > width - zone;			
 			if(mDragAllowScrolling) {
-				if(inZone && mPendingCheckForScroll == null) {
-					mPendingCheckForScroll = new PendingCheckForScroll();
-					mHandler.post(mPendingCheckForScroll);
-				} else if(!inZone && mPendingCheckForScroll != null) {
-					mHandler.removeCallbacks(mPendingCheckForScroll);
-					mPendingCheckForScroll = null;
+				if(inZone && mPendingCheckForHorizontalScroll == null) {
+					mPendingCheckForHorizontalScroll = new PendingCheckForHorizontalScroll();
+					mHandler.post(mPendingCheckForHorizontalScroll);
+				} else if(!inZone && mPendingCheckForHorizontalScroll != null) {
+					mHandler.removeCallbacks(mPendingCheckForHorizontalScroll);
+					mPendingCheckForHorizontalScroll = null;
 				}
 			} else if(!inZone) mDragAllowScrolling = true;
 			
@@ -394,6 +396,17 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 			int[] listOffset = new int[2];
 			list.getLocationOnScreen(listOffset);
 			int listY = (int) (mDragY - listOffset[1]);
+			int height = mScrollView.getHeight();
+			zone = height/DRAG_SCROLL_ZONE;
+			inZone = listY > 0 && listY < height && (listY < zone || listY > height - zone);
+			
+			if(inZone && mPendingCheckForVerticalScroll == null) {
+				mPendingCheckForVerticalScroll = new PendingCheckForVerticalScroll();
+				mHandler.post(mPendingCheckForVerticalScroll);
+			} else if(!inZone && mPendingCheckForVerticalScroll != null) {
+				mHandler.removeCallbacks(mPendingCheckForVerticalScroll);
+				mPendingCheckForVerticalScroll = null;
+			}
 			
 			//Hover item
 			int position;
@@ -471,8 +484,8 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 		mDragImage = null;
 		mDragging = false;
 		mDragAllowScrolling = false;
-		if(mPendingCheckForScroll != null) mHandler.removeCallbacks(mPendingCheckForScroll);
-		mPendingCheckForScroll = null;
+		if(mPendingCheckForHorizontalScroll != null) mHandler.removeCallbacks(mPendingCheckForHorizontalScroll);
+		mPendingCheckForHorizontalScroll = null;
 		mDragCancelDispatched = false;
 		if(mDragView != null) mDragView.setVisibility(View.VISIBLE);
 		mDragView = null;
@@ -547,13 +560,13 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 	 * @author Niggo
 	 *
 	 */
-	private class PendingCheckForScroll implements Runnable {
+	private class PendingCheckForHorizontalScroll implements Runnable {
 		@Override
 		public void run() {
 			int width = mScrollView.getWidth();
-			int zone = mScrollView.getWidth()/DRAG_SCROLL_ZONE;
+			int zone = width/DRAG_SCROLL_ZONE;
 			
-			if(mPendingCheckForScroll == this) {
+			if(mPendingCheckForHorizontalScroll == this) {
 				if(mDragX < zone) {
 					//Left zone
 					if(mCurrentList > 0) mScrollView.smoothScrollToWorkspace(mCurrentList-1);
@@ -562,10 +575,47 @@ public class TasksActivity extends FragmentActivity implements OnClickListener, 
 					if(mCurrentList < mListIds.length-1) mScrollView.smoothScrollToWorkspace(mCurrentList+1);
 				} else {
 					mHandler.removeCallbacks(this);
-					mPendingCheckForScroll = null;
+					mPendingCheckForHorizontalScroll = null;
 					return;
 				}
-				mHandler.postDelayed(this, DRAG_SCROLL_TIMEOUT);
+				mHandler.postDelayed(this, DRAG_SCROLL_TIMEOUT_HORIZONTAL);
+			}
+		}
+	}
+	
+	/**
+	 * 
+	 * @author Niggo
+	 *
+	 */
+	private class PendingCheckForVerticalScroll implements Runnable {
+		@Override
+		public void run() {
+			ListView list = mFragments[mCurrentList].getListView();
+			int height = list.getHeight();
+			int zone = height/DRAG_SCROLL_ZONE;
+			
+			if(mPendingCheckForVerticalScroll == this) {
+				int[] listOffset = new int[2];
+				list.getLocationOnScreen(listOffset);
+				int listY = (int) (mDragY - listOffset[1]);
+				int position;
+				View item;
+				
+				if(listY > 0 && listY < height) {
+					if(listY < zone) {
+						//Top zone
+						list.smoothScrollBy(-20, DRAG_SCROLL_TIMEOUT_VERTICAL);
+					} else if (listY > height - zone) {
+						//Bottom zone
+						list.smoothScrollBy(20, DRAG_SCROLL_TIMEOUT_VERTICAL);
+					} else {
+						mHandler.removeCallbacks(this);
+						mPendingCheckForHorizontalScroll = null;
+						return;
+					}
+					mHandler.postDelayed(this, DRAG_SCROLL_TIMEOUT_VERTICAL);
+				}
 			}
 		}
 	}
